@@ -577,7 +577,7 @@ allocation_percent = 5
 # Directory to save models (with subdirectories for each stock)
 model_dir = "Models_50_4_18_25"
 os.makedirs(model_dir, exist_ok=True)
-Finnhub_API_Key = "cufsh3pr01qo5muk0ja0cufsh3pr01qo5muk0jag"
+Finnhub_API_Key = "Your API Key Here"
 
 
 def main_trading_logic():
