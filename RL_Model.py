@@ -7,8 +7,8 @@ import os
 import requests
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from datetime import datetime, timedelta
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 import random
@@ -165,10 +165,11 @@ class StockTradingEnv(gym.Env):
         merged = merged[features]
         return merged
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
         self.current_step = 0
         state = self.data.iloc[self.current_step]
-        return state.values
+        return state.values, {}
 
     def step(self, action):
         current_state = self.data.iloc[self.current_step]
@@ -179,8 +180,8 @@ class StockTradingEnv(gym.Env):
         )
         reward, total_trades = self.calculate_profit(action, current_state, next_state)
         self.current_step += 1
-        done = self.current_step >= len(self.data) - 1
-        return next_state.values, reward, done, {}
+        terminated = self.current_step >= len(self.data) - 1
+        return next_state.values, reward, terminated, False, {}
 
     @staticmethod
     def get_current_price(data):
@@ -253,7 +254,8 @@ def main(symbol):
     total_trades = 0
     while not done:
         action, _states = model.predict(obs, deterministic=True)
-        obs, rewards, done, info = env.step(action)
+        obs, rewards, dones, info = env.step(action)
+        done = dones[0]
         total_reward += rewards
         total_trades += 1
         if rewards > 0:

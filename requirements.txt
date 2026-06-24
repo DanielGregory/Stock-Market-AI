@@ -1,0 +1,12 @@
+pandas
+numpy
+scikit-learn
+yfinance
+vaderSentiment
+requests
+python-dotenv
+torch
+stable-baselines3>=2.0.0
+gymnasium
+openpyxl
+lxml

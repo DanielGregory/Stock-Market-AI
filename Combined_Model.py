@@ -32,8 +32,8 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import yfinance as yf
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 import random
@@ -415,18 +415,19 @@ class CombinedTradingEnv(gym.Env):
         self.data = data.reset_index(drop=True)
         self.current_step = 0
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
         self.current_step = 0
-        return self._get_obs()
+        return self._get_obs(), {}
 
     def step(self, action):
         current_price = self.data['Close'].iloc[self.current_step]
         self.current_step += 1
-        done = self.current_step >= len(self.data) - 1
+        terminated = self.current_step >= len(self.data) - 1
         next_price = self.data['Close'].iloc[self.current_step]
         pct_change = (next_price - current_price) / current_price * 100
         reward = pct_change if action == 0 else -pct_change
-        return self._get_obs(), reward, done, {}
+        return self._get_obs(), reward, terminated, False, {}
 
     def _get_obs(self):
         row = self.data.iloc[self.current_step]
@@ -473,14 +474,15 @@ def run_rl_stage(data, sgd_result, symbol, model_dir):
 
     # Evaluate on test data
     eval_env = CombinedTradingEnv(test_data)
-    obs = eval_env.reset()
+    obs, _ = eval_env.reset()
     done = False
     total_reward = 0.0
     win_count = 0
     total_trades = 0
     while not done:
         action, _ = rl_model.predict(obs, deterministic=True)
-        obs, reward, done, _ = eval_env.step(action)
+        obs, reward, terminated, truncated, _ = eval_env.step(action)
+        done = terminated or truncated
         total_reward += reward
         total_trades += 1
         if reward > 0:
