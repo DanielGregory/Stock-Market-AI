@@ -266,7 +266,7 @@ def train_gru(symbol, model_dir="Models_GRU"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = GRUModel(input_size=len(FEATURES)).to(device)
     criterion = TradingLoss(lag_penalty=1.5)
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 
     if os.path.exists(model_path):

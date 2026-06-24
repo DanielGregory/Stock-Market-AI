@@ -261,7 +261,7 @@ def run_gru_stage(data, symbol, model_dir):
 
     model = GRUModel(input_size=len(BASE_FEATURES)).to(device)
     criterion = TradingLoss(lag_penalty=1.5)
-    optimizer = torch.optim.Adam(model.parameters(), lr=GRU_LR)
+    optimizer = torch.optim.Adam(model.parameters(), lr=GRU_LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 
     if os.path.exists(model_path):
