@@ -484,14 +484,20 @@ def run_rl_stage(data, sgd_result, symbol, model_dir):
     os.makedirs(model_dir, exist_ok=True)
     model_path = os.path.join(model_dir, f"{symbol}_combined_ppo.zip")
 
-    # Attach sgd_conf to data for RL observation
+    # Generate SGD confidence for every row using the trained model + scaler,
+    # so the RL agent trains on real signal rather than a flat 0.5 backfill.
     data = data.copy()
-    # sgd_conf covers only the last TEST_SIZE rows; backfill with 0.5 for training rows
-    full_sgd_conf = np.full(len(data), 0.5)
-    full_sgd_conf[-TEST_SIZE:] = sgd_result["sgd_conf"]
-    data['sgd_conf'] = full_sgd_conf
+    for col in EXTENDED_FEATURES:
+        if col not in data.columns:
+            data[col] = 0.0
+    X_all = sgd_result["scaler"].transform(data[EXTENDED_FEATURES].values)
+    try:
+        raw_scores = sgd_result["model"].decision_function(X_all)
+        data['sgd_conf'] = 1 / (1 + np.exp(-raw_scores))
+    except Exception:
+        data['sgd_conf'] = sgd_result["model"].predict(X_all).astype(float)
 
-    # Ensure all RL features exist
+    # Ensure remaining RL features exist
     for col in RL_FEATURES:
         if col not in data.columns:
             data[col] = 0.0
