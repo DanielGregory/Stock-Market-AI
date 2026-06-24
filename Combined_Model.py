@@ -13,6 +13,7 @@ Stage 3 (RL):   The PPO agent's observation space is expanded to include both
                 each model's signal and size positions accordingly.
 """
 
+import copy
 import os
 import pickle
 import time as tm
@@ -26,7 +27,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dotenv import load_dotenv
 from sklearn.linear_model import SGDClassifier
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, confusion_matrix,
+)
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
@@ -254,10 +258,25 @@ def run_gru_stage(data, symbol, model_dir):
     X_seq, y_seq, pc_seq, pd_seq = create_sequences(X_scaled, y, price_changes, prev_dirs)
 
     n_test = TEST_SIZE
-    X_train = X_seq[:-n_test]
-    y_train = y_seq[:-n_test]
-    pc_train = pc_seq[:-n_test]
-    pd_train = pd_seq[:-n_test]
+    X_train_full = X_seq[:-n_test]
+    y_train_full = y_seq[:-n_test]
+    pc_train_full = pc_seq[:-n_test]
+    pd_train_full = pd_seq[:-n_test]
+
+    n_val = max(20, len(X_train_full) // 5)
+    X_train = X_train_full[:-n_val];  y_train = y_train_full[:-n_val]
+    pc_train = pc_train_full[:-n_val]; pd_train = pd_train_full[:-n_val]
+    X_val = X_train_full[-n_val:];    y_val = y_train_full[-n_val:]
+    pc_val = pc_train_full[-n_val:];  pd_val = pd_train_full[-n_val:]
+
+    def _t(*arrays):
+        return [torch.tensor(a, dtype=torch.float32).to(device) for a in arrays]
+
+    loader = DataLoader(
+        TensorDataset(*_t(X_train, y_train, pc_train, pd_train)),
+        batch_size=BATCH_SIZE, shuffle=False,
+    )
+    val_t = _t(X_val, y_val, pc_val, pd_val)
 
     model = GRUModel(input_size=len(BASE_FEATURES)).to(device)
     criterion = TradingLoss(lag_penalty=1.5)
@@ -270,27 +289,38 @@ def run_gru_stage(data, symbol, model_dir):
     else:
         print(f"  [GRU] Training new model for {symbol}...")
 
-    loader = DataLoader(
-        TensorDataset(
-            torch.tensor(X_train, dtype=torch.float32),
-            torch.tensor(y_train, dtype=torch.float32),
-            torch.tensor(pc_train, dtype=torch.float32),
-            torch.tensor(pd_train, dtype=torch.float32),
-        ),
-        batch_size=BATCH_SIZE, shuffle=False
-    )
-    model.train()
+    PATIENCE = 7
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_weights = copy.deepcopy(model.state_dict())
+
     for epoch in range(GRU_EPOCHS):
+        model.train()
         epoch_loss = 0.0
         for X_b, y_b, pc_b, pd_b in loader:
-            X_b, y_b, pc_b, pd_b = X_b.to(device), y_b.to(device), pc_b.to(device), pd_b.to(device)
             optimizer.zero_grad()
             loss = criterion(model(X_b), y_b, pc_b, pd_b)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             epoch_loss += loss.item()
-        scheduler.step(epoch_loss / len(loader))
+
+        model.eval()
+        with torch.no_grad():
+            val_loss = criterion(model(val_t[0]), *val_t[1:]).item()
+        scheduler.step(val_loss)
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_weights = copy.deepcopy(model.state_dict())
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= PATIENCE:
+                print(f"  [GRU] Early stopping at epoch {epoch + 1}")
+                break
+
+    model.load_state_dict(best_weights)
 
     torch.save(model.state_dict(), model_path)
 
@@ -370,29 +400,45 @@ def run_sgd_stage(data, symbol, model_dir):
         pickle.dump(model, f)
 
     predictions = model.predict(X_test_s)
-    accuracy = accuracy_score(y_test, predictions)
 
-    # Decision confidence: distance from hyperplane (only for log_loss / hinge with coef_)
     try:
         raw_conf = model.decision_function(X_test_s)
-        sgd_conf = 1 / (1 + np.exp(-raw_conf))  # sigmoid to [0,1]
+        sgd_conf = 1 / (1 + np.exp(-raw_conf))
     except Exception:
         sgd_conf = predictions.astype(float)
 
+    accuracy  = accuracy_score(y_test, predictions)
+    precision = precision_score(y_test, predictions, zero_division=0)
+    recall    = recall_score(y_test, predictions, zero_division=0)
+    f1        = f1_score(y_test, predictions, zero_division=0)
+    try:
+        auc = roc_auc_score(y_test, sgd_conf)
+    except ValueError:
+        auc = 0.0
+    sharpe           = calculate_sharpe(predictions, close_prices_test)
     last_10_accuracy = accuracy_score(y_test[-10:], predictions[-10:])
-    print(f"  [SGD] Accuracy: {accuracy:.2f} | Last-10: {last_10_accuracy:.2f}")
+
+    print(
+        f"  [SGD] Acc: {accuracy:.2f} | P: {precision:.2f} | R: {recall:.2f} | "
+        f"F1: {f1:.2f} | AUC: {auc:.2f} | Sharpe: {sharpe:.2f}"
+    )
 
     return {
-        "predictions": predictions,
-        "y_test": y_test,
-        "accuracy": accuracy,
+        "predictions":      predictions,
+        "y_test":           y_test,
+        "accuracy":         accuracy,
+        "precision":        precision,
+        "recall":           recall,
+        "f1":               f1,
+        "auc":              auc,
+        "sharpe":           sharpe,
         "last_10_accuracy": last_10_accuracy,
-        "best_cv_f1": best_cv_f1,
+        "best_cv_f1":       best_cv_f1,
         "close_prices_test": close_prices_test,
-        "sgd_conf": sgd_conf,
-        "test_data": test_data,
-        "scaler": scaler,
-        "model": model,
+        "sgd_conf":         sgd_conf,
+        "test_data":        test_data,
+        "scaler":           scaler,
+        "model":            model,
     }
 
 
@@ -498,6 +544,26 @@ def run_rl_stage(data, sgd_result, symbol, model_dir):
     }
 
 
+# ── Shared metric helpers ─────────────────────────────────────────────────────
+
+def calculate_sharpe(predictions, close_prices, risk_free_rate=0.0):
+    """Annualized Sharpe ratio of the model's strategy on the test set."""
+    returns = []
+    for i in range(len(predictions) - 1):
+        cur, nxt = close_prices[i], close_prices[i + 1]
+        if cur == 0:
+            continue
+        ret = (nxt - cur) / cur if predictions[i] == 1 else (cur - nxt) / cur
+        returns.append(ret)
+    if not returns:
+        return 0.0
+    r = np.array(returns)
+    std = r.std()
+    if std == 0:
+        return 0.0
+    return float((r.mean() - risk_free_rate / 252) / std * np.sqrt(252))
+
+
 # ── Combined profit backtest (using SGD predictions on real prices) ───────────
 
 def calculate_profit(predictions, close_prices, quantity):
@@ -572,17 +638,22 @@ if __name__ == "__main__":
                 sgd_acc = 1 - sgd_acc
 
             result_row = {
-                "Symbol": symbol,
-                "GRU_Accuracy": round(gru_accuracy * 100, 2),
-                "GRU_Next_Prob": round(gru_next_prob, 4),
-                "GRU_Signal": "UP" if gru_next_prob >= 0.5 else "DOWN",
-                "SGD_Accuracy": round(sgd_acc * 100, 2),
-                "SGD_Accuracy_10": round(sgd_result["last_10_accuracy"] * 100, 2),
-                "SGD_CV_F1": round(sgd_result["best_cv_f1"] * 100, 2),
-                "RL_Win_Rate": round(rl_result["win_rate"] * 100, 2),
-                "RL_Total_Reward": round(rl_result["total_reward"], 2),
-                "Backtest_Profit": round(profit, 2),
-                "Current_Price": round(current_price, 2),
+                "Symbol":           symbol,
+                "GRU_Acc_%":        round(gru_accuracy * 100,                    2),
+                "GRU_Next_Prob":    round(gru_next_prob,                          4),
+                "GRU_Signal":       "UP" if gru_next_prob >= 0.5 else "DOWN",
+                "SGD_Acc_%":        round(sgd_acc * 100,                          2),
+                "SGD_Precision_%":  round(sgd_result["precision"] * 100,          2),
+                "SGD_Recall_%":     round(sgd_result["recall"] * 100,             2),
+                "SGD_F1_%":         round(sgd_result["f1"] * 100,                 2),
+                "SGD_AUC":          round(sgd_result["auc"],                      4),
+                "SGD_Sharpe":       round(sgd_result["sharpe"],                   3),
+                "SGD_Acc_10_%":     round(sgd_result["last_10_accuracy"] * 100,   2),
+                "SGD_CV_F1_%":      round(sgd_result["best_cv_f1"] * 100,         2),
+                "RL_Win_Rate_%":    round(rl_result["win_rate"] * 100,            2),
+                "RL_Total_Reward":  round(rl_result["total_reward"],              2),
+                "Backtest_Profit":  round(profit,                                  2),
+                "Current_Price":    round(current_price,                           2),
             }
             all_results.append(result_row)
             print(f"  Result: {result_row}")

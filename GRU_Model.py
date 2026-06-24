@@ -8,12 +8,16 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import yfinance as yf
 from dotenv import load_dotenv
 
+import copy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, confusion_matrix,
+)
 
 load_dotenv()
 
@@ -190,6 +194,24 @@ def add_sentiment(data, symbol):
     return merged
 
 
+def calculate_sharpe(predictions, close_prices, risk_free_rate=0.0):
+    """Annualized Sharpe ratio of the model's strategy on the test set."""
+    returns = []
+    for i in range(len(predictions) - 1):
+        cur, nxt = close_prices[i], close_prices[i + 1]
+        if cur == 0:
+            continue
+        ret = (nxt - cur) / cur if predictions[i] == 1 else (cur - nxt) / cur
+        returns.append(ret)
+    if not returns:
+        return 0.0
+    r = np.array(returns)
+    std = r.std()
+    if std == 0:
+        return 0.0
+    return float((r.mean() - risk_free_rate / 252) / std * np.sqrt(252))
+
+
 def create_sequences(X, y, price_changes, prev_dirs, seq_length=SEQUENCE_LENGTH):
     Xs, ys, pcs, pds = [], [], [], []
     for i in range(len(X) - seq_length):
@@ -246,22 +268,34 @@ def train_gru(symbol, model_dir="Models_GRU"):
 
     X_seq, y_seq, pc_seq, pd_seq = create_sequences(X_all_scaled, y, price_changes, prev_dirs)
 
-    # Train / test split on sequences
+    # Train / val / test split — all chronological, no shuffling
     n_test = TEST_SIZE
-    X_train = X_seq[:-n_test]
-    y_train = y_seq[:-n_test]
-    pc_train = pc_seq[:-n_test]
-    pd_train = pd_seq[:-n_test]
+    X_train_full = X_seq[:-n_test]
+    y_train_full = y_seq[:-n_test]
+    pc_train_full = pc_seq[:-n_test]
+    pd_train_full = pd_seq[:-n_test]
     X_test = X_seq[-n_test:]
     y_test = y_seq[-n_test:]
 
-    dataset = TensorDataset(
-        torch.tensor(X_train, dtype=torch.float32),
-        torch.tensor(y_train, dtype=torch.float32),
-        torch.tensor(pc_train, dtype=torch.float32),
-        torch.tensor(pd_train, dtype=torch.float32),
+    # Carve validation from the end of the training window
+    n_val = max(20, len(X_train_full) // 5)
+    X_train = X_train_full[:-n_val]
+    y_train = y_train_full[:-n_val]
+    pc_train = pc_train_full[:-n_val]
+    pd_train = pd_train_full[:-n_val]
+    X_val = X_train_full[-n_val:]
+    y_val = y_train_full[-n_val:]
+    pc_val = pc_train_full[-n_val:]
+    pd_val = pd_train_full[-n_val:]
+
+    def to_tensors(*arrays):
+        return [torch.tensor(a, dtype=torch.float32).to(device) for a in arrays]
+
+    loader = DataLoader(
+        TensorDataset(*to_tensors(X_train, y_train, pc_train, pd_train)),
+        batch_size=BATCH_SIZE, shuffle=False,
     )
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
+    val_tensors = to_tensors(X_val, y_val, pc_val, pd_val)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = GRUModel(input_size=len(FEATURES)).to(device)
@@ -273,62 +307,97 @@ def train_gru(symbol, model_dir="Models_GRU"):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"Loaded existing weights for {symbol}.")
 
-    model.train()
+    # Early stopping
+    PATIENCE = 7
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_weights = copy.deepcopy(model.state_dict())
+
     for epoch in range(EPOCHS):
+        model.train()
         epoch_loss = 0.0
-        for X_batch, y_batch, pc_batch, pd_batch in loader:
-            X_batch = X_batch.to(device)
-            y_batch = y_batch.to(device)
-            pc_batch = pc_batch.to(device)
-            pd_batch = pd_batch.to(device)
+        for X_b, y_b, pc_b, pd_b in loader:
             optimizer.zero_grad()
-            preds = model(X_batch)
-            loss = criterion(preds, y_batch, pc_batch, pd_batch)
+            loss = criterion(model(X_b), y_b, pc_b, pd_b)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             epoch_loss += loss.item()
-        avg_loss = epoch_loss / len(loader)
-        scheduler.step(avg_loss)
-        if (epoch + 1) % 10 == 0:
-            print(f"  Epoch {epoch+1}/{EPOCHS} — Loss: {avg_loss:.4f}")
 
+        model.eval()
+        with torch.no_grad():
+            val_loss = criterion(model(val_tensors[0]), *val_tensors[1:]).item()
+
+        scheduler.step(val_loss)
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_weights = copy.deepcopy(model.state_dict())
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= PATIENCE:
+                print(f"  Early stopping at epoch {epoch + 1} (best val loss: {best_val_loss:.4f})")
+                break
+
+        if (epoch + 1) % 10 == 0:
+            print(f"  Epoch {epoch+1}/{EPOCHS} — Train: {epoch_loss/len(loader):.4f} | Val: {val_loss:.4f}")
+
+    model.load_state_dict(best_weights)
     torch.save(model.state_dict(), model_path)
     print(f"Model saved to {model_path}")
 
-    # Evaluation
+    # ── Evaluation ────────────────────────────────────────────────────────────
     model.eval()
     with torch.no_grad():
-        X_test_t = X_test_t.to(device)
+        X_test_t = torch.tensor(X_test, dtype=torch.float32).to(device)
         raw_probs = model(X_test_t).squeeze().cpu().numpy()
 
     predictions = (raw_probs >= 0.5).astype(int)
-    accuracy = accuracy_score(y_test, predictions)
+    close_prices_test = data['Close'].values[-n_test:]
 
-    last_10_preds = predictions[-10:]
-    last_10_actuals = y_test[-10:]
-    last_10_accuracy = accuracy_score(last_10_actuals, last_10_preds)
+    accuracy        = accuracy_score(y_test, predictions)
+    precision       = precision_score(y_test, predictions, zero_division=0)
+    recall          = recall_score(y_test, predictions, zero_division=0)
+    f1              = f1_score(y_test, predictions, zero_division=0)
+    try:
+        auc = roc_auc_score(y_test, raw_probs)
+    except ValueError:
+        auc = 0.0
+    sharpe          = calculate_sharpe(predictions, close_prices_test)
+    last_10_accuracy = accuracy_score(y_test[-10:], predictions[-10:])
+    conf_matrix     = confusion_matrix(y_test, predictions)
 
     # Next-bar prediction using the most recent sequence
-    model.eval()
     with torch.no_grad():
         last_seq = torch.tensor(X_seq[-1:], dtype=torch.float32).to(device)
         next_prob = model(last_seq).squeeze().item()
     next_direction = "UP" if next_prob >= 0.5 else "DOWN"
 
-    print(f"Accuracy: {accuracy:.2f} | Last-10: {last_10_accuracy:.2f} | Next: {next_direction} ({next_prob:.2f})")
+    print(
+        f"Acc: {accuracy:.2f} | P: {precision:.2f} | R: {recall:.2f} | "
+        f"F1: {f1:.2f} | AUC: {auc:.2f} | Sharpe: {sharpe:.2f} | "
+        f"Next: {next_direction} ({next_prob:.2f})"
+    )
+    print(f"Confusion matrix:\n{conf_matrix}")
 
     return {
-        "symbol": symbol,
-        "accuracy": accuracy,
+        "symbol":           symbol,
+        "accuracy":         accuracy,
+        "precision":        precision,
+        "recall":           recall,
+        "f1":               f1,
+        "auc":              auc,
+        "sharpe":           sharpe,
         "last_10_accuracy": last_10_accuracy,
-        "next_direction": next_direction,
-        "next_prob": next_prob,
-        "predictions": predictions,
-        "y_test": y_test,
-        "raw_probs": raw_probs,
-        "model": model,
-        "scaler": scaler,
+        "next_direction":   next_direction,
+        "next_prob":        next_prob,
+        "predictions":      predictions,
+        "close_prices_test": close_prices_test,
+        "y_test":           y_test,
+        "raw_probs":        raw_probs,
+        "model":            model,
+        "scaler":           scaler,
     }
 
 
@@ -355,11 +424,16 @@ if __name__ == "__main__":
                 continue
 
             all_results.append({
-                "Symbol": result["symbol"],
-                "Accuracy": round(result["accuracy"] * 100, 2),
-                "Accuracy_10": round(result["last_10_accuracy"] * 100, 2),
+                "Symbol":        result["symbol"],
+                "Accuracy_%":    round(result["accuracy"]   * 100, 2),
+                "Precision_%":   round(result["precision"]  * 100, 2),
+                "Recall_%":      round(result["recall"]     * 100, 2),
+                "F1_%":          round(result["f1"]         * 100, 2),
+                "AUC":           round(result["auc"],               4),
+                "Sharpe":        round(result["sharpe"],            3),
+                "Accuracy_10_%": round(result["last_10_accuracy"] * 100, 2),
                 "Next_Direction": result["next_direction"],
-                "Next_Prob": round(result["next_prob"], 4),
+                "Next_Prob":     round(result["next_prob"],        4),
             })
 
             output_file = "GRU_results.xlsx"

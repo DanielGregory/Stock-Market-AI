@@ -2,7 +2,10 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, confusion_matrix,
+)
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 import time as tm
 import os
@@ -161,24 +164,51 @@ def train_and_predict(data, symbol, test_size=50):
         top_feature_weight = top_feature['Weight']
 
         predictions = model.predict(X_test)
-        accuracy = accuracy_score(y_test, predictions)
-        print(f"Accuracy for {symbol}: {accuracy:.2f}")
+
+        # Decision confidence — sigmoid of distance from hyperplane
+        try:
+            raw_scores = model.decision_function(X_test)
+            raw_probs  = 1 / (1 + np.exp(-raw_scores))
+        except Exception:
+            raw_probs = predictions.astype(float)
+
+        accuracy  = accuracy_score(y_test, predictions)
+        precision = precision_score(y_test, predictions, zero_division=0)
+        recall    = recall_score(y_test, predictions, zero_division=0)
+        f1        = f1_score(y_test, predictions, zero_division=0)
+        try:
+            auc = roc_auc_score(y_test, raw_probs)
+        except ValueError:
+            auc = 0.0
+        sharpe     = calculate_sharpe(predictions, close_prices_test)
+        conf_matrix = confusion_matrix(y_test, predictions)
+
+        print(
+            f"[{symbol}] Acc: {accuracy:.2f} | P: {precision:.2f} | R: {recall:.2f} | "
+            f"F1: {f1:.2f} | AUC: {auc:.2f} | Sharpe: {sharpe:.2f}"
+        )
+        print(f"Confusion matrix:\n{conf_matrix}")
 
         last_10_predictions = predictions[-10:]
-        last_10_actuals = y_test[-10:]
-        last_10_accuracy = accuracy_score(last_10_actuals, last_10_predictions)
+        last_10_actuals     = y_test[-10:]
+        last_10_accuracy    = accuracy_score(last_10_actuals, last_10_predictions)
 
         return {
-            "model": model,
-            "y_test": y_test,
-            "predictions": predictions,
-            "accuracy": accuracy,
+            "model":            model,
+            "y_test":           y_test,
+            "predictions":      predictions,
+            "accuracy":         accuracy,
+            "precision":        precision,
+            "recall":           recall,
+            "f1":               f1,
+            "auc":              auc,
+            "sharpe":           sharpe,
             "close_prices_test": close_prices_test,
-            "top_feature": top_feature_name,
-            "top_weight": top_feature_weight,
+            "top_feature":      top_feature_name,
+            "top_weight":       top_feature_weight,
             "last_10_accuracy": last_10_accuracy,
             "best_cv_f1_score": best_cv_f1_score,
-            "last_10_predictions": last_10_predictions
+            "last_10_predictions": last_10_predictions,
         }
 
     except Exception as e:
@@ -213,6 +243,24 @@ def calculate_quantity(symbol, allocation_percent, principal, current_price):
     except Exception as e:
         print(f"Error calculating quantity: {e}")
         return 0
+
+def calculate_sharpe(predictions, close_prices, risk_free_rate=0.0):
+    """Annualized Sharpe ratio of the model's strategy on the test set."""
+    returns = []
+    for i in range(len(predictions) - 1):
+        cur, nxt = close_prices[i], close_prices[i + 1]
+        if cur == 0:
+            continue
+        ret = (nxt - cur) / cur if predictions[i] == 1 else (cur - nxt) / cur
+        returns.append(ret)
+    if not returns:
+        return 0.0
+    r = np.array(returns)
+    std = r.std()
+    if std == 0:
+        return 0.0
+    return float((r.mean() - risk_free_rate / 252) / std * np.sqrt(252))
+
 
 def calculate_atr(data, period=14):
     if len(data) < period:
@@ -328,15 +376,20 @@ def main_trading_logic():
             result = train_and_predict(merged, symbol)
 
             if result:
-                predictions = result.get("predictions")
-                accuracy = result.get("accuracy")
+                predictions       = result.get("predictions")
+                accuracy          = result.get("accuracy")
+                precision         = result.get("precision")
+                recall            = result.get("recall")
+                f1                = result.get("f1")
+                auc               = result.get("auc")
+                sharpe            = result.get("sharpe")
                 close_prices_test = result.get("close_prices_test")
-                y_test = result.get("y_test")
-                top_feature = result.get("top_feature")
-                top_weight = result.get("top_weight")
-                Last_10_accuracy = result.get("last_10_accuracy")
-                best_cv_f1_score = result.get("best_cv_f1_score")
-                pred_last_10 = result.get("last_10_predictions")
+                y_test            = result.get("y_test")
+                top_feature       = result.get("top_feature")
+                top_weight        = result.get("top_weight")
+                Last_10_accuracy  = result.get("last_10_accuracy")
+                best_cv_f1_score  = result.get("best_cv_f1_score")
+                pred_last_10      = result.get("last_10_predictions")
 
                 if accuracy <= 0.48:
                     accuracy = 1 - accuracy
@@ -359,19 +412,24 @@ def main_trading_logic():
             profit10 = calculate_profit(pred_last_10, y_test[-10:], close_prices_test[-10:], quantity)
 
             results.append({
-                "Symbol": symbol,
-                "Accuracy": accuracy * 100,
-                "Accuracy_10": Last_10_accuracy * 100,
-                "Profit": profit,
-                "Profit10": profit10,
-                "Flipped": flipped,
-                "CV_Score": best_cv_f1_score * 100,
-                "Volume": volume,
-                "Volume_5": volume_5,
-                "top_feature": top_feature,
-                "top_weight": top_weight,
-                "ATR_14": atr_14,
-                "Current_Price": round(current_price, 2) if current_price else "N/A"
+                "Symbol":        symbol,
+                "Accuracy_%":    round(accuracy         * 100, 2),
+                "Precision_%":   round(precision        * 100, 2),
+                "Recall_%":      round(recall           * 100, 2),
+                "F1_%":          round(f1               * 100, 2),
+                "AUC":           round(auc,                    4),
+                "Sharpe":        round(sharpe,                 3),
+                "Accuracy_10_%": round(Last_10_accuracy * 100, 2),
+                "Profit":        profit,
+                "Profit10":      profit10,
+                "Flipped":       flipped,
+                "CV_Score_%":    round(best_cv_f1_score * 100, 2),
+                "Volume":        volume,
+                "Volume_5":      volume_5,
+                "top_feature":   top_feature,
+                "top_weight":    top_weight,
+                "ATR_14":        atr_14,
+                "Current_Price": round(current_price, 2) if current_price else "N/A",
             })
 
             try:
