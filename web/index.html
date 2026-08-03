@@ -462,6 +462,193 @@
       .table-wrap     { -webkit-overflow-scrolling: touch; margin-bottom: 24px; }
     }
 
+    /* ── Documentation section ───────────────────────────── */
+    .docs-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 18px;
+    }
+
+    .docs-toggle .section-title { margin-bottom: 0; }
+
+    .docs-toggle .toggle-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 3px 10px;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .docs-toggle:hover .toggle-btn { border-color: var(--accent); color: var(--accent); }
+
+    #docs-body { display: none; }
+    #docs-body.open { display: block; }
+
+    .docs-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    @media (max-width: 860px) { .docs-grid { grid-template-columns: 1fr; } }
+
+    .doc-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 22px;
+    }
+
+    .doc-card.full { grid-column: 1 / -1; }
+
+    .doc-card-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .doc-table th {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 6px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .doc-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(42,45,62,0.5);
+      vertical-align: top;
+      font-size: 13px;
+      font-family: inherit;
+      white-space: normal;
+      line-height: 1.5;
+    }
+
+    .doc-table tr:last-child td { border-bottom: none; }
+
+    .doc-table td:first-child {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: #a5b4fc;
+      white-space: nowrap;
+      width: 1%;
+      padding-right: 16px;
+    }
+
+    .doc-table .tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    .tag-gru  { background: rgba(99,102,241,0.18); color: #a5b4fc; }
+    .tag-sgd  { background: rgba(6,182,212,0.18);  color: #67e8f9; }
+    .tag-rl   { background: rgba(34,197,94,0.18);  color: #86efac; }
+    .tag-all  { background: rgba(245,158,11,0.18); color: #fcd34d; }
+
+    .kv-list {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 16px;
+      font-size: 13px;
+    }
+
+    .kv-list dt {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: #a5b4fc;
+      white-space: nowrap;
+      align-self: baseline;
+    }
+
+    .kv-list dd {
+      color: var(--text);
+      line-height: 1.5;
+      align-self: baseline;
+    }
+
+    .doc-note {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-top: 10px;
+    }
+
+    .doc-note strong { color: var(--text); }
+
+    .pipeline-detail {
+      display: flex;
+      gap: 0;
+      flex-wrap: wrap;
+      align-items: stretch;
+    }
+
+    .pd-stage {
+      flex: 1;
+      min-width: 160px;
+      padding: 14px 16px;
+      border-right: 1px solid var(--border);
+    }
+
+    .pd-stage:last-child { border-right: none; }
+
+    .pd-name {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .pd-name.gru  { color: #a5b4fc; }
+    .pd-name.sgd  { color: #67e8f9; }
+    .pd-name.rl   { color: #86efac; }
+
+    .pd-desc {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 8px;
+    }
+
+    .pd-io {
+      font-size: 11px;
+      font-family: var(--mono);
+      color: var(--muted);
+    }
+
+    .pd-io span { color: var(--text); }
+
+    @media (max-width: 640px) {
+      .pipeline-detail { flex-direction: column; }
+      .pd-stage { border-right: none; border-bottom: 1px solid var(--border); }
+      .pd-stage:last-child { border-bottom: none; }
+    }
+
     .chart-card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -589,6 +776,188 @@
         <tbody id="results-body"></tbody>
       </table>
     </div>
+    <!-- Technical Reference -->
+    <div class="docs-toggle" onclick="toggleDocs()">
+      <p class="section-title" style="margin-bottom:0">Technical Reference</p>
+      <button class="toggle-btn" id="docs-btn">Show</button>
+    </div>
+
+    <div id="docs-body">
+      <!-- Pipeline deep-dive -->
+      <div class="doc-card full" style="margin-bottom:16px">
+        <div class="doc-card-title">Pipeline Architecture — GRU → SGD → PPO</div>
+        <div class="pipeline-detail">
+          <div class="pd-stage">
+            <div class="pd-name gru">Stage 1 · GRU Network</div>
+            <div class="pd-desc">
+              2-layer Gated Recurrent Unit that reads 30-day sequences of price/indicator data
+              and learns which temporal patterns precede an up-move over the next 5 trading days.
+              Outputs a probability <strong>gru_prob</strong> for every row, which feeds into stages 2 and 3
+              as an additional feature — giving downstream models sequential context they couldn't
+              derive from a single-row snapshot.
+            </div>
+            <div class="pd-io">Input: <span>30 × 13 sequence</span></div>
+            <div class="pd-io">Output: <span>gru_prob ∈ [0, 1]</span></div>
+          </div>
+          <div class="pd-stage">
+            <div class="pd-name sgd">Stage 2 · SGD Classifier</div>
+            <div class="pd-desc">
+              Stochastic Gradient Descent linear classifier trained on base features +
+              <strong>gru_prob</strong>. Uses <em>TimeSeriesSplit</em> cross-validation (no look-ahead leakage)
+              and <em>partial_fit</em> for incremental online learning.
+              Outputs a binary direction and <strong>sgd_conf</strong> (sigmoid of decision function),
+              which becomes the RL agent's signal of linear-model conviction.
+            </div>
+            <div class="pd-io">Input: <span>14 features</span></div>
+            <div class="pd-io">Output: <span>prediction {0,1}, sgd_conf ∈ [0,1]</span></div>
+          </div>
+          <div class="pd-stage">
+            <div class="pd-name rl">Stage 3 · PPO RL Agent</div>
+            <div class="pd-desc">
+              Proximal Policy Optimization agent that learns <em>when to trust</em> the upstream models.
+              Its observation includes both gru_prob and sgd_conf plus the current position (0 = flat,
+              1 = long), so it knows whether it already holds. Actions are binary: enter/hold long or
+              exit/stay flat. Steps advance one full week (5 trading days) per decision.
+            </div>
+            <div class="pd-io">Input: <span>15 features + position flag</span></div>
+            <div class="pd-io">Output: <span>action ∈ {0, 1}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="docs-grid">
+        <!-- Feature table -->
+        <div class="doc-card full">
+          <div class="doc-card-title">Input Features</div>
+          <div style="overflow-x:auto">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th>Used by</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Open, High, Low, Close, Volume</td><td><span class="tag tag-all">ALL</span></td><td>Raw OHLCV bars from yfinance (daily, 400-day history).</td></tr>
+              <tr><td>Previous_Close</td><td><span class="tag tag-all">ALL</span></td><td>Close.shift(1) — gives the model a direct 1-day lag reference.</td></tr>
+              <tr><td>MA_20</td><td><span class="tag tag-all">ALL</span></td><td>20-day simple moving average. Trend baseline; price crossing above is bullish.</td></tr>
+              <tr><td>Volatility_20</td><td><span class="tag tag-all">ALL</span></td><td>20-day rolling standard deviation of close. Measures market uncertainty; higher vol → wider distributions.</td></tr>
+              <tr><td>RSI</td><td><span class="tag tag-all">ALL</span></td><td>14-period Relative Strength Index. Oscillator 0–100; >70 = overbought, &lt;30 = oversold.</td></tr>
+              <tr><td>Obv</td><td><span class="tag tag-all">ALL</span></td><td>On-Balance Volume. Cumulative volume signed by price direction; divergence from price signals reversals.</td></tr>
+              <tr><td>MACD_Crossover</td><td><span class="tag tag-all">ALL</span></td><td>Binary: 1 when 12-EMA &gt; 26-EMA (MACD line above signal). Classic momentum indicator.</td></tr>
+              <tr><td>Volume_5</td><td><span class="tag tag-all">ALL</span></td><td>5-day average volume. Smoothed demand proxy; spikes relative to MA_20 signal interest.</td></tr>
+              <tr><td>sentiment</td><td><span class="tag tag-all">ALL</span></td><td>VADER compound score of Finnhub news headlines, averaged per day. 0 if Finnhub key absent.</td></tr>
+              <tr><td>gru_prob</td><td><span class="tag tag-sgd">SGD</span> <span class="tag tag-rl">RL</span></td><td>GRU's output probability for an up-move next week. Gives SGD and RL a sequential signal unavailable from a single-row view.</td></tr>
+              <tr><td>sgd_conf</td><td><span class="tag tag-rl">RL</span></td><td>sigmoid(SGD decision_function). The RL agent uses this to gauge how certain the linear model is before acting.</td></tr>
+              <tr><td>position</td><td><span class="tag tag-rl">RL</span></td><td>Current holding state (0 = flat, 1 = long). Part of the RL observation so the agent knows whether it's already in a trade.</td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+
+        <!-- GRU details -->
+        <div class="doc-card">
+          <div class="doc-card-title">GRU Architecture &amp; Training</div>
+          <dl class="kv-list">
+            <dt>Layers</dt>       <dd>2-layer GRU, hidden size 64</dd>
+            <dt>Dropout</dt>      <dd>0.2 between GRU layers + before FC output</dd>
+            <dt>Sequence</dt>     <dd>30 days of context (≈ 6 trading weeks)</dd>
+            <dt>Target</dt>       <dd>Direction = Close.shift(−5) > Close (weekly binary)</dd>
+            <dt>Loss</dt>         <dd>TradingLoss (see below)</dd>
+            <dt>Optimizer</dt>    <dd>Adam, lr = 0.001, weight_decay = 1e-4 (L2 reg)</dd>
+            <dt>Scheduler</dt>    <dd>ReduceLROnPlateau, patience 5, factor 0.5</dd>
+            <dt>Early stop</dt>   <dd>Patience 7 epochs on validation loss; best weights restored</dd>
+            <dt>Epochs</dt>       <dd>Up to 30 (full run), 10 (demo)</dd>
+            <dt>Grad clip</dt>    <dd>max_norm = 1.0 — prevents exploding gradients in RNNs</dd>
+          </dl>
+          <div class="doc-note" style="margin-top:14px">
+            <strong>TradingLoss</strong> = BCE × profit_weight × lag_weight.<br>
+            <strong>Profit weight</strong>: |price_change| + 1 — errors on larger moves cost more, aligning training with actual P&amp;L impact.<br>
+            <strong>Anti-lag penalty</strong>: 1.5× when the model predicts the same direction as yesterday AND is wrong — pushes the model to anticipate reversals rather than blindly follow lagging indicators like MA and MACD.
+          </div>
+          <div class="doc-note" style="margin-top:10px">
+            <strong>Why GRU over LSTM?</strong> GRU has fewer parameters (2 gates vs 3) and trains faster with comparable accuracy on shorter sequences. At 30-step windows and this dataset size, the extra capacity of LSTM rarely helps and increases overfitting risk.
+          </div>
+        </div>
+
+        <!-- SGD details -->
+        <div class="doc-card">
+          <div class="doc-card-title">SGD Classifier &amp; Cross-Validation</div>
+          <dl class="kv-list">
+            <dt>Algorithm</dt>    <dd>SGDClassifier (sklearn) — online gradient descent</dd>
+            <dt>CV strategy</dt>  <dd>TimeSeriesSplit, 5 folds — no lookahead leakage</dd>
+            <dt>Search</dt>       <dd>GridSearchCV scored on F1 (imbalance-robust)</dd>
+            <dt>loss</dt>         <dd>hinge or log_loss</dd>
+            <dt>penalty</dt>      <dd>L1 or L2</dd>
+            <dt>alpha</dt>        <dd>{0.0001, 0.001, 0.01} — regularization strength</dd>
+            <dt>learning_rate</dt><dd>invscaling or adaptive</dd>
+            <dt>eta0</dt>         <dd>{0.001, 0.01, 0.1} — initial step size</dd>
+            <dt>Online update</dt><dd>partial_fit in batches of 20 — incremental as new data arrives</dd>
+            <dt>Confidence</dt>   <dd>sigmoid(decision_function(X)) → sgd_conf ∈ [0,1]</dd>
+          </dl>
+          <div class="doc-note" style="margin-top:14px">
+            <strong>Why TimeSeriesSplit?</strong> Standard k-fold shuffles data, letting future rows appear in training folds. TimeSeriesSplit always trains on the past and validates on the future — matching real deployment conditions.<br><br>
+            <strong>Prediction flip</strong>: if test accuracy ≤ 48%, the model's predictions are inverted before backtesting. A model that's wrong &gt;50% of the time is directionally useful — just backwards.
+          </div>
+        </div>
+
+        <!-- RL details -->
+        <div class="doc-card">
+          <div class="doc-card-title">PPO Reinforcement Learning Environment</div>
+          <dl class="kv-list">
+            <dt>Algorithm</dt>    <dd>Proximal Policy Optimization (stable-baselines3)</dd>
+            <dt>Action space</dt> <dd>Discrete(2) — 0 = exit/stay flat, 1 = enter/hold long</dd>
+            <dt>Obs space</dt>    <dd>Box(−∞, ∞, shape=(16,)) — 15 RL features + position</dd>
+            <dt>Reward</dt>       <dd>(next_price − entry_price) / entry_price × 100 if long, else 0</dd>
+            <dt>Step size</dt>    <dd>HOLD_PERIOD = 5 trading days (one week per decision)</dd>
+            <dt>Timesteps</dt>    <dd>8 000 (full run), 2 000 (demo)</dd>
+            <dt>Seed</dt>         <dd>42 (random, numpy, torch, SB3) — reproducible runs</dd>
+            <dt>Train/test</dt>   <dd>RL trains on pre-test portion; evaluated on last 100 days</dd>
+          </dl>
+          <div class="doc-note" style="margin-top:14px">
+            <strong>Why PPO?</strong> PPO is stable and sample-efficient for discrete action spaces. Its clipped surrogate objective prevents large policy updates that destabilize training — important when reward signals are noisy (stock prices).<br><br>
+            <strong>Hold-through-up logic</strong>: the agent only sells when it chooses action 0 while holding. Consecutive action-1 steps keep the position open, naturally holding through multi-week up trends without churning.
+          </div>
+        </div>
+
+        <!-- Metrics glossary -->
+        <div class="doc-card">
+          <div class="doc-card-title">Metrics Glossary</div>
+          <table class="doc-table">
+            <thead><tr><th>Metric</th><th>Definition</th></tr></thead>
+            <tbody>
+              <tr><td>GRU Acc %</td><td>Binary accuracy of GRU on last 100 test days.</td></tr>
+              <tr><td>Week Signal</td><td>GRU's prediction for the next 5-day window: UP (prob ≥ 0.5) or DOWN.</td></tr>
+              <tr><td>Confidence</td><td>Raw GRU probability (0–1). Values near 0.5 = uncertain; near 0 or 1 = high conviction.</td></tr>
+              <tr><td>SGD Acc %</td><td>Binary accuracy of SGD on last 100 test days (flipped if &lt; 48%).</td></tr>
+              <tr><td>SGD Last-10 %</td><td>Accuracy over the most recent 10 predictions — recency check for drift.</td></tr>
+              <tr><td>RL Win Rate %</td><td>% of weekly time-steps where reward &gt; 0 during test episode.</td></tr>
+              <tr><td>Backtest $</td><td>Simulated P&amp;L from hold-through-up strategy on 5% portfolio allocation.</td></tr>
+              <tr><td>Return %</td><td>Backtest $ ÷ starting allocation × 100.</td></tr>
+              <tr><td>Alpha vs SPY</td><td>Return % minus SPY buy-and-hold over the same 100-day window. Positive = outperformed the index.</td></tr>
+              <tr><td>Composite score</td><td>(GRU Acc + SGD Acc + RL Win Rate) ÷ 3. Single ranking metric across all three models.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Key design decisions -->
+        <div class="doc-card">
+          <div class="doc-card-title">Design Decisions — Interview Q&amp;A</div>
+          <table class="doc-table">
+            <thead><tr><th>Question</th><th>Answer</th></tr></thead>
+            <tbody>
+              <tr><td>Why weekly (5-day) horizon?</td><td>RSI-14, MACD 12/26/9, and MA-20 all lag by 9–26 days. Predicting next-day moves asks the model to outrun its own indicators. A weekly window aligns prediction horizon with indicator timescale.</td></tr>
+              <tr><td>Why a sequential pipeline?</td><td>Each model adds a signal the next can't compute alone. GRU captures temporal sequence context; SGD adds a linear decision boundary with that context; RL learns meta-strategy — when to trust each.</td></tr>
+              <tr><td>Why not just use the RL agent?</td><td>RL alone is sample-starved on short price histories and prone to overfitting noise. Grounding it with GRU and SGD signals pre-filters the search space and stabilises training.</td></tr>
+              <tr><td>How is leakage prevented?</td><td>Direction = Close.shift(−5) is computed then the test set (last 100 rows) is held out before any fitting. TimeSeriesSplit ensures CV folds never train on future data.</td></tr>
+              <tr><td>Why yfinance over Alpaca?</td><td>yfinance is free with no API key for historical daily data. Alpaca was removed to eliminate dependency on a brokerage account and enable open-source reproducibility.</td></tr>
+              <tr><td>Why VADER for sentiment?</td><td>VADER is a rule-based lexicon designed for short financial news text. It runs locally (no API cost per call) and handles negations and intensifiers well for headline-length strings.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div><!-- end docs-grid -->
+    </div><!-- end docs-body -->
   </main>
 
   <footer>
@@ -868,6 +1237,13 @@
     }
 
     load();
+
+    function toggleDocs() {
+      const body = document.getElementById('docs-body');
+      const btn  = document.getElementById('docs-btn');
+      const open = body.classList.toggle('open');
+      btn.textContent = open ? 'Hide' : 'Show';
+    }
   </script>
 </body>
 </html>
