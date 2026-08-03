@@ -31,7 +31,7 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, confusion_matrix,
 )
-from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
+from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -154,14 +154,12 @@ def add_features(data):
         data['Volatility_20'] = data['Close'].rolling(window=20).std()
         data['Momentum'] = data['Close'] - data['Previous_Close']
 
-        data['ATR_TR'] = data.apply(
-            lambda row: max(
-                row['High'] - row['Low'],
-                abs(row['High'] - row['Previous_Close']),
-                abs(row['Low'] - row['Previous_Close'])
-            ), axis=1
-        )
-        data['ATR_14'] = data['ATR_TR'].rolling(window=14).mean()
+        tr = pd.concat([
+            data['High'] - data['Low'],
+            (data['High'] - data['Previous_Close']).abs(),
+            (data['Low']  - data['Previous_Close']).abs(),
+        ], axis=1).max(axis=1)
+        data['ATR_14'] = tr.rolling(window=14).mean()
 
         bb_std = data['Close'].rolling(window=20).std()
         bb_upper = data['MA_20'] + 2 * bb_std
@@ -186,15 +184,8 @@ def add_features(data):
         data['ROC_20'] = (data['Close'] / data['Close'].shift(20) - 1) * 100
 
         # ── Volume ────────────────────────────────────────────────────────────
-        obv = [0]
-        for i in range(1, len(data)):
-            if data['Close'].iloc[i] > data['Close'].iloc[i - 1]:
-                obv.append(obv[-1] + data['Volume'].iloc[i])
-            elif data['Close'].iloc[i] < data['Close'].iloc[i - 1]:
-                obv.append(obv[-1] - data['Volume'].iloc[i])
-            else:
-                obv.append(obv[-1])
-        data['Obv'] = obv
+        price_dir = np.sign(data['Close'].diff().fillna(0))
+        data['Obv'] = (price_dir * data['Volume']).cumsum()
 
         vol_20 = data['Volume'].rolling(window=20).mean()
         data['Volume_ratio'] = data['Volume'] / (vol_20 + 1e-9)
@@ -484,16 +475,19 @@ def run_sgd_stage(data, symbol, model_dir):
             print(f"  [SGD] Feature set changed — retraining for {symbol}.")
 
     if model is None:
-        model = SGDClassifier(random_state=42)
         param_grid = {
             'loss': ['hinge', 'log_loss'],
             'penalty': ['l1', 'l2'],
             'alpha': [0.0001, 0.001, 0.01],
             'learning_rate': ['invscaling', 'adaptive'],
-            'eta0': [0.01, 0.1, 0.001],
+            'eta0': [0.001, 0.01, 0.1],
         }
         tscv = TimeSeriesSplit(n_splits=5)
-        gs = GridSearchCV(model, param_grid, cv=tscv, scoring='f1', n_jobs=1)
+        gs = RandomizedSearchCV(
+            SGDClassifier(random_state=42), param_grid,
+            n_iter=20, cv=tscv, scoring='f1',
+            random_state=42, n_jobs=1,
+        )
         gs.fit(X_train_s, y_train)
         best_cv_f1 = gs.best_score_
         model = gs.best_estimator_
