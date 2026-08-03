@@ -37,7 +37,7 @@ jobs:
           PORTFOLIO_SIZE: 100000
         run: |
           python demo.py \
-            --symbols AAPL MSFT GOOGL TSLA NVDA \
+            --symbols AAPL MSFT GOOGL TSLA NVDA AMZN META JPM \
             --epochs 30 \
             --steps 8000
 
