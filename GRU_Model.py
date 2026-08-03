@@ -22,14 +22,15 @@ from sklearn.metrics import (
 load_dotenv()
 
 Finnhub_API_Key = os.getenv("FINNHUB_API_KEY", "")
-SEQUENCE_LENGTH = 20
+SEQUENCE_LENGTH = 30     # 6 weeks of context for weekly predictions
 HIDDEN_SIZE = 64
 NUM_LAYERS = 2
 DROPOUT = 0.2
 LEARNING_RATE = 0.001
 EPOCHS = 30
 BATCH_SIZE = 32
-TEST_SIZE = 50
+TEST_SIZE = 100          # ~20 weekly periods
+HOLD_PERIOD = 5          # trading days per week
 
 FEATURES = [
     'Open', 'High', 'Low', 'Close', 'Volume', 'Previous_Close',
@@ -134,9 +135,9 @@ def add_features(data):
         data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
         data['MACD_Crossover'] = (data['MACD'] > data['Signal_Line']).astype(int)
 
-        data['Next_Close'] = data['Close'].shift(-1)
-        data['Direction'] = (data['Next_Close'] > data['Close']).astype(int)
-        data['Price_Change_Pct'] = data['Close'].pct_change().shift(-1)  # next-day % move
+        # Weekly target: will price be higher 5 trading days from now?
+        data['Direction'] = (data['Close'].shift(-HOLD_PERIOD) > data['Close']).astype(int)
+        data['Price_Change_Pct'] = (data['Close'].shift(-HOLD_PERIOD) - data['Close']) / data['Close']
 
         data.dropna(inplace=True)
         return data
@@ -195,21 +196,26 @@ def add_sentiment(data, symbol):
 
 
 def calculate_sharpe(predictions, close_prices, risk_free_rate=0.0):
-    """Annualized Sharpe ratio of the model's strategy on the test set."""
+    """Weekly Sharpe: long for 5 days when prediction is UP, flat when DOWN."""
     returns = []
-    for i in range(len(predictions) - 1):
-        cur, nxt = close_prices[i], close_prices[i + 1]
-        if cur == 0:
+    i = 0
+    while i + HOLD_PERIOD < len(close_prices):
+        if close_prices[i] == 0:
+            i += HOLD_PERIOD
             continue
-        ret = (nxt - cur) / cur if predictions[i] == 1 else (cur - nxt) / cur
+        if predictions[i] == 1:
+            ret = (close_prices[i + HOLD_PERIOD] - close_prices[i]) / close_prices[i]
+        else:
+            ret = 0.0
         returns.append(ret)
+        i += HOLD_PERIOD
     if not returns:
         return 0.0
     r = np.array(returns)
     std = r.std()
     if std == 0:
         return 0.0
-    return float((r.mean() - risk_free_rate / 252) / std * np.sqrt(252))
+    return float((r.mean() - risk_free_rate / 52) / std * np.sqrt(52))
 
 
 def create_sequences(X, y, price_changes, prev_dirs, seq_length=SEQUENCE_LENGTH):

@@ -218,6 +218,6 @@ print("""
   Notes:
   - Demo models are saved in Demo_Models/ and won't overwrite your trained models.
   - Accuracy reflects the last {test_size} days of data, not live performance.
-  - GRU Signal is the model's prediction for the NEXT trading day.
+  - GRU Signal is the model's prediction for end-of-next-week direction.
   - To run the full pipeline on all S&P 500 stocks: python Combined_Model.py
 """.format(test_size=pipeline.TEST_SIZE))

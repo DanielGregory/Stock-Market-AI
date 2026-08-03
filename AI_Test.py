@@ -68,8 +68,8 @@ def add_features(data):
         data['MACD_Crossover'] = (data['MACD'] > data['Signal_Line']).astype(int)
         data['MACD_5'] = data['MACD_Crossover'].rolling(window=5).mean()
 
-        data['Next_Close'] = data['Close'].shift(-1)
-        data['Direction'] = (data['Next_Close'] > data['Close']).astype(int)
+        # Weekly target: will price be higher 5 trading days from now?
+        data['Direction'] = (data['Close'].shift(-5) > data['Close']).astype(int)
         data['Direction_5'] = data['Direction'].shift(1).rolling(window=5).mean()
 
         data['TR'] = data.apply(
@@ -88,7 +88,9 @@ def add_features(data):
         print(f"Error in feature engineering: {e}")
         return pd.DataFrame()
 
-def train_and_predict(data, symbol, test_size=50):
+HOLD_PERIOD = 5
+
+def train_and_predict(data, symbol, test_size=100):
     try:
         train_data = data.iloc[:-test_size, :]
         test_data = data.iloc[-test_size:, :]
@@ -245,21 +247,23 @@ def calculate_quantity(symbol, allocation_percent, principal, current_price):
         return 0
 
 def calculate_sharpe(predictions, close_prices, risk_free_rate=0.0):
-    """Annualized Sharpe ratio of the model's strategy on the test set."""
+    """Weekly Sharpe: long for 5 days when prediction is UP, flat when DOWN."""
     returns = []
-    for i in range(len(predictions) - 1):
-        cur, nxt = close_prices[i], close_prices[i + 1]
-        if cur == 0:
+    i = 0
+    while i + HOLD_PERIOD < len(close_prices):
+        if close_prices[i] == 0:
+            i += HOLD_PERIOD
             continue
-        ret = (nxt - cur) / cur if predictions[i] == 1 else (cur - nxt) / cur
+        ret = (close_prices[i + HOLD_PERIOD] - close_prices[i]) / close_prices[i] if predictions[i] == 1 else 0.0
         returns.append(ret)
+        i += HOLD_PERIOD
     if not returns:
         return 0.0
     r = np.array(returns)
     std = r.std()
     if std == 0:
         return 0.0
-    return float((r.mean() - risk_free_rate / 252) / std * np.sqrt(252))
+    return float((r.mean() - risk_free_rate / 52) / std * np.sqrt(52))
 
 
 def calculate_atr(data, period=14):
@@ -277,22 +281,25 @@ def calculate_atr(data, period=14):
     return atr
 
 def calculate_profit(predictions, y_test, close_prices, quantity):
+    """Swing-trade backtest: hold while prediction is UP, sell when DOWN."""
     try:
         profit = 0.0
-        for i in range(len(y_test) - 1):
-            current_close = close_prices[i]
-            next_close = close_prices[i + 1]
-            predicted_direction = predictions[i]
-            if predicted_direction == 1:
-                if next_close > current_close:
-                    profit += (next_close - current_close) * quantity
-                else:
-                    profit -= (current_close - next_close) * quantity
-            elif predicted_direction == 0:
-                if next_close < current_close:
-                    profit += (current_close - next_close) * quantity
-                else:
-                    profit -= (next_close - current_close) * quantity
+        position = 0
+        entry_price = 0.0
+        i = 0
+        while i < len(close_prices):
+            price = close_prices[i]
+            pred = predictions[i]
+            if pred == 1 and position == 0:
+                position = 1
+                entry_price = price
+            elif pred == 0 and position == 1:
+                profit += (price - entry_price) * quantity
+                position = 0
+                entry_price = 0.0
+            i += HOLD_PERIOD
+        if position == 1:
+            profit += (close_prices[-1] - entry_price) * quantity
         print(f"Total profit/loss from all predictions: ${profit:.2f}")
         return profit
     except Exception as e:

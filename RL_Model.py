@@ -78,8 +78,8 @@ def add_features(data):
 
         last_row = data.iloc[[-1]]
 
-        data['Next_Close'] = data['Close'].shift(-1)
-        data['Direction'] = (data['Next_Close'] > data['Close']).astype(int)
+        # Weekly target: will price be higher 5 trading days from now?
+        data['Direction'] = (data['Close'].shift(-5) > data['Close']).astype(int)
         data['Direction_5'] = data['Direction'].shift(1).rolling(window=5).mean()
 
         data.dropna(inplace=True)
@@ -129,17 +129,23 @@ def aggregate_sentiment(data, news_df):
     return merged
 
 
+HOLD_PERIOD = 5  # trading days per prediction week
+
 class StockTradingEnv(gym.Env):
     def __init__(self, symbol, finnhub_api_key=""):
         super(StockTradingEnv, self).__init__()
 
-        self.action_space = spaces.Discrete(2)  # 0: Buy, 1: Sell
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32)
+        # 0: flat/exit  1: long/hold
+        self.action_space = spaces.Discrete(2)
+        # 15 features + 1 position flag
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(16,), dtype=np.float32)
 
         self.symbol = symbol
         self.finnhub_api_key = finnhub_api_key
         self.data = self.fetch_data()
         self.current_step = 0
+        self.position = 0
+        self.entry_price = 0.0
 
     def seed(self, seed=None):
         random.seed(seed)
@@ -168,20 +174,34 @@ class StockTradingEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 0
-        state = self.data.iloc[self.current_step]
-        return state.values, {}
+        self.position = 0
+        self.entry_price = 0.0
+        return self._get_obs(), {}
 
     def step(self, action):
-        current_state = self.data.iloc[self.current_step]
-        next_state = (
-            self.data.iloc[self.current_step + 1]
-            if self.current_step + 1 < len(self.data)
-            else current_state
-        )
-        reward, total_trades = self.calculate_profit(action, current_state, next_state)
-        self.current_step += 1
-        terminated = self.current_step >= len(self.data) - 1
-        return next_state.values, reward, terminated, False, {}
+        current_price = self.data['Close'].iloc[self.current_step]
+
+        if action == 1:           # go / stay long
+            if self.position == 0:
+                self.position = 1
+                self.entry_price = current_price
+        else:                     # exit / stay flat
+            if self.position == 1:
+                self.position = 0
+                self.entry_price = 0.0
+
+        next_step = min(self.current_step + HOLD_PERIOD, len(self.data) - 1)
+        next_price = self.data['Close'].iloc[next_step]
+        terminated = next_step >= len(self.data) - 1
+
+        reward = (next_price - current_price) / current_price * 100 if self.position == 1 else 0.0
+
+        self.current_step = next_step
+        return self._get_obs(), reward, terminated, False, {}
+
+    def _get_obs(self):
+        row = self.data.iloc[self.current_step]
+        return np.append(row.values.astype(np.float32), float(self.position))
 
     @staticmethod
     def get_current_price(data):
@@ -197,17 +217,14 @@ class StockTradingEnv(gym.Env):
             print(f"An error occurred while fetching the last close price: {e}")
             return None
 
-    def calculate_profit(self, action, current_state, next_state):
-        current_price = current_state['Close']
-        next_price = next_state['Close']
-        price_change_percentage = (next_price - current_price) / current_price * 100
-        reward = 0
-        total_trades = 1
-        if action == 0:    # Buy
-            reward = price_change_percentage
-        elif action == 1:  # Sell
-            reward = -price_change_percentage
-        return reward, total_trades
+    @staticmethod
+    def get_current_price(data):
+        try:
+            if not data.empty:
+                return data['Close'].iloc[-1]
+            return None
+        except Exception:
+            return None
 
 
 try:

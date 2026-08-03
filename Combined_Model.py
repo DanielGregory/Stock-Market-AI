@@ -49,14 +49,15 @@ PORTFOLIO_SIZE = float(os.getenv("PORTFOLIO_SIZE", "100000"))
 
 # ── Hyperparameters ───────────────────────────────────────────────────────────
 
-SEQUENCE_LENGTH = 20
+SEQUENCE_LENGTH = 30     # 6 weeks of context for weekly predictions
 GRU_HIDDEN = 64
 GRU_LAYERS = 2
 GRU_DROPOUT = 0.2
 GRU_LR = 0.001
 GRU_EPOCHS = 30
 BATCH_SIZE = 32
-TEST_SIZE = 50
+TEST_SIZE = 100          # ~20 weekly periods for meaningful evaluation
+HOLD_PERIOD = 5          # trading days per prediction period (1 week)
 
 BASE_FEATURES = [
     'Open', 'High', 'Low', 'Close', 'Volume', 'Previous_Close',
@@ -156,9 +157,9 @@ def add_features(data):
         data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
         data['MACD_Crossover'] = (data['MACD'] > data['Signal_Line']).astype(int)
 
-        data['Next_Close'] = data['Close'].shift(-1)
-        data['Direction'] = (data['Next_Close'] > data['Close']).astype(int)
-        data['Price_Change_Pct'] = data['Close'].pct_change().shift(-1)
+        # Weekly target: will price be higher 5 trading days from now?
+        data['Direction'] = (data['Close'].shift(-HOLD_PERIOD) > data['Close']).astype(int)
+        data['Price_Change_Pct'] = (data['Close'].shift(-HOLD_PERIOD) - data['Close']) / data['Close']
 
         data['ATR_TR'] = data.apply(
             lambda row: max(
@@ -446,38 +447,62 @@ def run_sgd_stage(data, symbol, model_dir):
 
 class CombinedTradingEnv(gym.Env):
     """
-    Trading environment whose observation vector includes:
-      - base technical features
-      - GRU probability (sequential signal)
-      - SGD confidence (linear model signal)
-    The RL agent learns when to trust each signal.
+    Weekly swing-trading environment.
+
+    Actions:
+      0 = flat / exit (sell if holding, stay out if already flat)
+      1 = long / hold  (buy if flat, hold if already long)
+
+    Each step advances HOLD_PERIOD trading days (one week). The agent
+    receives the weekly price return when long and 0 when flat. Observation
+    includes all RL features plus the current position (0 or 1) so the
+    agent knows whether it already holds a position.
     """
     def __init__(self, data):
         super().__init__()
-        self.action_space = spaces.Discrete(2)  # 0: Buy, 1: Sell
+        self.action_space = spaces.Discrete(2)
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(len(RL_FEATURES),), dtype=np.float32
+            low=-np.inf, high=np.inf,
+            shape=(len(RL_FEATURES) + 1,),  # +1 for current position
+            dtype=np.float32
         )
         self.data = data.reset_index(drop=True)
         self.current_step = 0
+        self.position = 0      # 0 = flat, 1 = long
+        self.entry_price = 0.0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 0
+        self.position = 0
+        self.entry_price = 0.0
         return self._get_obs(), {}
 
     def step(self, action):
         current_price = self.data['Close'].iloc[self.current_step]
-        self.current_step += 1
-        terminated = self.current_step >= len(self.data) - 1
-        next_price = self.data['Close'].iloc[self.current_step]
-        pct_change = (next_price - current_price) / current_price * 100
-        reward = pct_change if action == 0 else -pct_change
+
+        if action == 1:          # go / stay long
+            if self.position == 0:
+                self.position = 1
+                self.entry_price = current_price
+        else:                    # exit / stay flat
+            if self.position == 1:
+                self.position = 0
+                self.entry_price = 0.0
+
+        next_step = min(self.current_step + HOLD_PERIOD, len(self.data) - 1)
+        next_price = self.data['Close'].iloc[next_step]
+        terminated = next_step >= len(self.data) - 1
+
+        reward = (next_price - current_price) / current_price * 100 if self.position == 1 else 0.0
+
+        self.current_step = next_step
         return self._get_obs(), reward, terminated, False, {}
 
     def _get_obs(self):
         row = self.data.iloc[self.current_step]
-        return row[RL_FEATURES].values.astype(np.float32)
+        features = row[RL_FEATURES].values.astype(np.float32)
+        return np.append(features, float(self.position))
 
 
 def run_rl_stage(data, sgd_result, symbol, model_dir):
@@ -553,33 +578,60 @@ def run_rl_stage(data, sgd_result, symbol, model_dir):
 # ── Shared metric helpers ─────────────────────────────────────────────────────
 
 def calculate_sharpe(predictions, close_prices, risk_free_rate=0.0):
-    """Annualized Sharpe ratio of the model's strategy on the test set."""
+    """
+    Annualized Sharpe based on weekly hold-or-flat strategy.
+    Long for a full week when prediction is UP, flat (0 return) when DOWN.
+    Annualizes with sqrt(52) since returns are weekly.
+    """
     returns = []
-    for i in range(len(predictions) - 1):
-        cur, nxt = close_prices[i], close_prices[i + 1]
-        if cur == 0:
+    i = 0
+    while i + HOLD_PERIOD < len(close_prices):
+        if close_prices[i] == 0:
+            i += HOLD_PERIOD
             continue
-        ret = (nxt - cur) / cur if predictions[i] == 1 else (cur - nxt) / cur
+        if predictions[i] == 1:
+            ret = (close_prices[i + HOLD_PERIOD] - close_prices[i]) / close_prices[i]
+        else:
+            ret = 0.0
         returns.append(ret)
+        i += HOLD_PERIOD
     if not returns:
         return 0.0
     r = np.array(returns)
     std = r.std()
     if std == 0:
         return 0.0
-    return float((r.mean() - risk_free_rate / 252) / std * np.sqrt(252))
+    return float((r.mean() - risk_free_rate / 52) / std * np.sqrt(52))
 
-
-# ── Combined profit backtest (using SGD predictions on real prices) ───────────
 
 def calculate_profit(predictions, close_prices, quantity):
+    """
+    Swing-trade backtest: buy on first UP prediction, hold through
+    consecutive UP weeks, sell only when prediction flips to DOWN.
+    Steps weekly (every HOLD_PERIOD days).
+    """
     profit = 0.0
-    for i in range(len(predictions) - 1):
-        cur, nxt = close_prices[i], close_prices[i + 1]
-        if predictions[i] == 1:
-            profit += (nxt - cur) * quantity if nxt > cur else -(cur - nxt) * quantity
-        else:
-            profit += (cur - nxt) * quantity if nxt < cur else -(nxt - cur) * quantity
+    position = 0
+    entry_price = 0.0
+
+    i = 0
+    while i < len(close_prices):
+        price = close_prices[i]
+        pred = predictions[i]
+
+        if pred == 1 and position == 0:
+            position = 1
+            entry_price = price
+        elif pred == 0 and position == 1:
+            profit += (price - entry_price) * quantity
+            position = 0
+            entry_price = 0.0
+
+        i += HOLD_PERIOD
+
+    if position == 1:
+        profit += (close_prices[-1] - entry_price) * quantity
+
     return profit
 
 
