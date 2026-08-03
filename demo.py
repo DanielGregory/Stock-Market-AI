@@ -9,9 +9,11 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
 import time
+import datetime
 import pandas as pd
 
 # ── CLI arguments ─────────────────────────────────────────────────────────────
@@ -175,6 +177,37 @@ if all_results:
         print(f"\n  Results saved to {output}")
     except Exception as e:
         print(f"\n  Could not save Excel file: {e}")
+
+    # ── Write JSON for Vercel dashboard ───────────────────────────────────────
+    json_path = os.path.join("web", "data", "results.json")
+    try:
+        os.makedirs(os.path.dirname(json_path), exist_ok=True)
+        json_records = []
+        for r in all_results:
+            json_records.append({
+                "symbol":          r["Symbol"],
+                "gru_accuracy":    r["GRU Acc %"],
+                "gru_signal":      r["GRU Signal"].strip(),
+                "gru_prob":        r["GRU Prob"],
+                "sgd_accuracy":    r["SGD Acc %"],
+                "sgd_accuracy_10": r["SGD Acc-10 %"],
+                "rl_win_rate":     r["RL Win Rate %"],
+                "backtest_profit": r["Backtest $"],
+            })
+        payload = {
+            "last_updated": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "run_config": {
+                "symbols": args.symbols,
+                "epochs":   args.epochs,
+                "rl_steps": DEMO_RL_STEPS,
+            },
+            "results": json_records,
+        }
+        with open(json_path, "w") as f:
+            json.dump(payload, f, indent=2)
+        print(f"  Dashboard data saved to {json_path}")
+    except Exception as e:
+        print(f"  Could not save dashboard JSON: {e}")
 else:
     print("  No results to display.")
 

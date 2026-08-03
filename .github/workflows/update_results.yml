@@ -1,0 +1,45 @@
+name: Update Dashboard Results
+
+on:
+  schedule:
+    # Runs every day at 06:00 UTC (after US market open data is available)
+    - cron: '0 6 * * 1-5'
+  workflow_dispatch:  # allow manual trigger from GitHub UI
+
+permissions:
+  contents: write
+
+jobs:
+  run-models:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run demo pipeline
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          PORTFOLIO_SIZE: 100000
+        run: |
+          python demo.py \
+            --symbols AAPL MSFT GOOGL TSLA NVDA \
+            --epochs 10 \
+            --steps 2000
+
+      - name: Commit updated results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/data/results.json demo_results.xlsx
+          git diff --cached --quiet || git commit -m "chore: update dashboard results [skip ci]"
+          git push

@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Market AI — Results Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3e;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --accent: #6366f1;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 24px 32px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    header h1 span { color: var(--accent); }
+
+    #meta {
+      margin-left: auto;
+      font-size: 13px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    #meta .dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    main { padding: 32px; max-width: 1200px; margin: 0 auto; }
+
+    .pipeline {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 0;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .stage {
+      text-align: center;
+      padding: 10px 20px;
+    }
+
+    .stage-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    .stage-box.gru  { border-color: #6366f1; color: #a5b4fc; }
+    .stage-box.sgd  { border-color: #06b6d4; color: #67e8f9; }
+    .stage-box.rl   { border-color: #22c55e; color: #86efac; }
+
+    .stage-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .arrow {
+      color: var(--muted);
+      font-size: 20px;
+      padding: 0 4px;
+      flex-shrink: 0;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+
+    .card-label {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .card-value {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+
+    .card-value.up   { color: var(--green); }
+    .card-value.down { color: var(--red); }
+    .card-value.neutral { color: var(--accent); }
+
+    .card-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-bottom: 32px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    tr:hover td { background: var(--surface); }
+
+    td.symbol {
+      font-weight: 700;
+      color: var(--text);
+      font-family: var(--mono);
+    }
+
+    .signal-up   { color: var(--green); font-weight: 600; }
+    .signal-down { color: var(--red);   font-weight: 600; }
+
+    .profit-pos { color: var(--green); }
+    .profit-neg { color: var(--red); }
+
+    .bar-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .bar-track {
+      flex: 1;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      min-width: 60px;
+      max-width: 100px;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--accent);
+      transition: width 0.4s ease;
+    }
+
+    .charts-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    @media (max-width: 640px) {
+      .charts-row { grid-template-columns: 1fr; }
+      main { padding: 16px; }
+      header { padding: 16px; }
+    }
+
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .chart-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+
+    .chart-card canvas { max-height: 220px; }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 20px 32px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    footer a:hover { text-decoration: underline; }
+
+    .disclaimer {
+      margin-left: auto;
+      font-style: italic;
+    }
+
+    #error-banner {
+      display: none;
+      background: #450a0a;
+      border: 1px solid var(--red);
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #fca5a5;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Stock Market <span>AI</span></h1>
+    <div id="meta">
+      <span class="dot"></span>
+      <span id="last-updated">loading…</span>
+    </div>
+  </header>
+
+  <main>
+    <div id="error-banner"></div>
+
+    <!-- Pipeline diagram -->
+    <div class="pipeline">
+      <div class="stage">
+        <div class="stage-box gru">GRU Network</div>
+        <div class="stage-label">temporal patterns</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage">
+        <div class="stage-box sgd">SGD Classifier</div>
+        <div class="stage-label">linear boundary</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage">
+        <div class="stage-box rl">PPO RL Agent</div>
+        <div class="stage-label">strategy</div>
+      </div>
+    </div>
+
+    <!-- Summary cards -->
+    <p class="section-title">Latest Run Summary</p>
+    <div class="grid" id="summary-cards"></div>
+
+    <!-- Charts -->
+    <p class="section-title">Model Accuracy</p>
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">Accuracy by Model</div>
+        <canvas id="acc-chart"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Backtest Profit ($)</div>
+        <canvas id="profit-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Results table -->
+    <p class="section-title">Per-Stock Results</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>GRU Acc</th>
+            <th>GRU Signal</th>
+            <th>GRU Prob</th>
+            <th>SGD Acc</th>
+            <th>SGD Last-10</th>
+            <th>RL Win Rate</th>
+            <th>Backtest $</th>
+          </tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <footer>
+    <span>
+      <a href="https://github.com/DanielGregory/Stock-Market-AI" target="_blank">GitHub</a>
+      &nbsp;·&nbsp; GRU → SGD → PPO sequential pipeline
+    </span>
+    <span class="disclaimer">Research only. Not financial advice.</span>
+  </footer>
+
+  <script>
+    const CHART_DEFAULTS = {
+      color: '#e2e8f0',
+      borderColor: '#2a2d3e',
+    };
+    Chart.defaults.color = CHART_DEFAULTS.color;
+    Chart.defaults.borderColor = CHART_DEFAULTS.borderColor;
+
+    function fmt(n, decimals = 1) {
+      return typeof n === 'number' ? n.toFixed(decimals) : '—';
+    }
+
+    function profitClass(v) {
+      return v >= 0 ? 'profit-pos' : 'profit-neg';
+    }
+
+    function bar(value, max = 100) {
+      const pct = Math.min(100, Math.max(0, (value / max) * 100));
+      return `<div class="bar-cell">
+        <span>${fmt(value)}%</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }
+
+    async function load() {
+      let data;
+      try {
+        const res = await fetch('./data/results.json?_=' + Date.now());
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+      } catch (e) {
+        document.getElementById('error-banner').style.display = 'block';
+        document.getElementById('error-banner').textContent =
+          'Could not load results.json — ' + e.message;
+        return;
+      }
+
+      // Meta
+      const d = new Date(data.last_updated);
+      document.getElementById('last-updated').textContent =
+        'Updated ' + d.toUTCString();
+
+      const results = data.results || [];
+
+      // Summary cards
+      const avgGru  = results.reduce((s, r) => s + r.gru_accuracy, 0) / results.length;
+      const avgSgd  = results.reduce((s, r) => s + r.sgd_accuracy, 0) / results.length;
+      const avgRl   = results.reduce((s, r) => s + r.rl_win_rate,  0) / results.length;
+      const totProfit = results.reduce((s, r) => s + r.backtest_profit, 0);
+      const bullish = results.filter(r => r.gru_signal === 'UP').length;
+
+      const cards = [
+        { label: 'Avg GRU Accuracy',  value: fmt(avgGru) + '%',  cls: 'neutral' },
+        { label: 'Avg SGD Accuracy',  value: fmt(avgSgd) + '%',  cls: 'neutral' },
+        { label: 'Avg RL Win Rate',   value: fmt(avgRl)  + '%',  cls: 'neutral' },
+        { label: 'Total Backtest P&L', value: '$' + totProfit.toLocaleString('en-US', {maximumFractionDigits: 0}),
+          cls: totProfit >= 0 ? 'up' : 'down' },
+        { label: 'Bullish Signals',   value: bullish + ' / ' + results.length, cls: 'neutral' },
+        { label: 'Stocks Analyzed',   value: results.length,     cls: 'neutral' },
+      ];
+
+      document.getElementById('summary-cards').innerHTML = cards.map(c => `
+        <div class="card">
+          <div class="card-label">${c.label}</div>
+          <div class="card-value ${c.cls}">${c.value}</div>
+        </div>
+      `).join('');
+
+      // Table
+      document.getElementById('results-body').innerHTML = results.map(r => `
+        <tr>
+          <td class="symbol">${r.symbol}</td>
+          <td>${bar(r.gru_accuracy)}</td>
+          <td class="${r.gru_signal === 'UP' ? 'signal-up' : 'signal-down'}">${r.gru_signal}</td>
+          <td>${fmt(r.gru_prob, 3)}</td>
+          <td>${bar(r.sgd_accuracy)}</td>
+          <td>${bar(r.sgd_accuracy_10)}</td>
+          <td>${bar(r.rl_win_rate)}</td>
+          <td class="${profitClass(r.backtest_profit)}">
+            ${r.backtest_profit >= 0 ? '+' : ''}$${r.backtest_profit.toLocaleString('en-US', {maximumFractionDigits: 0})}
+          </td>
+        </tr>
+      `).join('');
+
+      // Charts
+      const labels  = results.map(r => r.symbol);
+      const colors  = ['#6366f1','#06b6d4','#22c55e','#f59e0b','#ec4899'];
+      const profits = results.map(r => r.backtest_profit);
+      const profitColors = profits.map(p => p >= 0 ? '#22c55e' : '#ef4444');
+
+      new Chart(document.getElementById('acc-chart'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'GRU %',
+              data: results.map(r => r.gru_accuracy),
+              backgroundColor: '#6366f1',
+              borderRadius: 4,
+            },
+            {
+              label: 'SGD %',
+              data: results.map(r => r.sgd_accuracy),
+              backgroundColor: '#06b6d4',
+              borderRadius: 4,
+            },
+            {
+              label: 'RL Win %',
+              data: results.map(r => r.rl_win_rate),
+              backgroundColor: '#22c55e',
+              borderRadius: 4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { labels: { boxWidth: 12, font: { size: 12 } } } },
+          scales: {
+            x: { grid: { color: '#1e2130' } },
+            y: {
+              grid: { color: '#1e2130' },
+              min: 40,
+              max: 80,
+              ticks: { callback: v => v + '%' },
+            },
+          },
+        },
+      });
+
+      new Chart(document.getElementById('profit-chart'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Profit $',
+            data: profits,
+            backgroundColor: profitColors,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: '#1e2130' } },
+            y: {
+              grid: { color: '#1e2130' },
+              ticks: { callback: v => '$' + v.toLocaleString() },
+            },
+          },
+        },
+      });
+    }
+
+    load();
+  </script>
+</body>
+</html>

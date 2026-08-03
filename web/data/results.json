@@ -1,0 +1,60 @@
+{
+  "last_updated": "2026-08-03T00:00:00Z",
+  "run_config": {
+    "symbols": ["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"],
+    "epochs": 10,
+    "rl_steps": 2000
+  },
+  "results": [
+    {
+      "symbol": "AAPL",
+      "gru_accuracy": 54.0,
+      "gru_signal": "UP",
+      "gru_prob": 0.671,
+      "sgd_accuracy": 56.0,
+      "sgd_accuracy_10": 60.0,
+      "rl_win_rate": 58.0,
+      "backtest_profit": 1243.0
+    },
+    {
+      "symbol": "MSFT",
+      "gru_accuracy": 52.0,
+      "gru_signal": "DOWN",
+      "gru_prob": 0.423,
+      "sgd_accuracy": 55.0,
+      "sgd_accuracy_10": 50.0,
+      "rl_win_rate": 56.0,
+      "backtest_profit": 987.0
+    },
+    {
+      "symbol": "GOOGL",
+      "gru_accuracy": 57.0,
+      "gru_signal": "UP",
+      "gru_prob": 0.612,
+      "sgd_accuracy": 59.0,
+      "sgd_accuracy_10": 70.0,
+      "rl_win_rate": 62.0,
+      "backtest_profit": 1876.0
+    },
+    {
+      "symbol": "TSLA",
+      "gru_accuracy": 51.0,
+      "gru_signal": "UP",
+      "gru_prob": 0.538,
+      "sgd_accuracy": 53.0,
+      "sgd_accuracy_10": 40.0,
+      "rl_win_rate": 54.0,
+      "backtest_profit": -423.0
+    },
+    {
+      "symbol": "NVDA",
+      "gru_accuracy": 59.0,
+      "gru_signal": "UP",
+      "gru_prob": 0.703,
+      "sgd_accuracy": 61.0,
+      "sgd_accuracy_10": 80.0,
+      "rl_win_rate": 64.0,
+      "backtest_profit": 3102.0
+    }
+  ]
+}
