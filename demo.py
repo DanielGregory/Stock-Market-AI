@@ -83,6 +83,7 @@ for symbol in args.symbols:
         # ── Fetch & engineer features ──────────────────────────────────────
         print(f"\n  Fetching {symbol} data from Yahoo Finance...")
         bars_df = pipeline.fetch_historical_data(symbol, days=400)
+        time.sleep(1)  # avoid yfinance rate limiting
         if bars_df.empty:
             print(f"  No data returned for {symbol}, skipping.")
             failed.append(symbol)
@@ -127,15 +128,19 @@ for symbol in args.symbols:
         # ── Backtest trade stats ───────────────────────────────────────────
         current_price = sgd_result["close_prices_test"][-1]
         quantity = max(1, int((pipeline.PORTFOLIO_SIZE * pipeline.ALLOCATION_PERCENT / 100) // current_price))
+
+        # Flip predictions when model is sub-chance (inverted signal is useful)
+        predictions = sgd_result["predictions"].copy()
+        sgd_acc = sgd_result["accuracy"]
+        if sgd_acc <= 0.48:
+            predictions = 1 - predictions
+            sgd_acc = 1 - sgd_acc
+
         stats = pipeline.calculate_trade_stats(
-            sgd_result["predictions"],
+            predictions,
             sgd_result["close_prices_test"],
             quantity,
         )
-
-        sgd_acc = sgd_result["accuracy"]
-        if sgd_acc <= 0.48:
-            sgd_acc = 1 - sgd_acc
 
         elapsed = time.time() - t0
         print(f"\n  Done in {elapsed:.0f}s")
@@ -189,6 +194,22 @@ if all_results:
     except Exception as e:
         print(f"\n  Could not save Excel file: {e}")
 
+    # ── SPY baseline (buy-and-hold over the same test period) ─────────────────
+    spy_return_pct = None
+    try:
+        print("\n  Fetching SPY baseline...")
+        spy_df = pipeline.fetch_historical_data("SPY", days=400)
+        if not spy_df.empty and len(spy_df) >= pipeline.TEST_SIZE:
+            spy_test = spy_df.iloc[-pipeline.TEST_SIZE:]
+            spy_start = float(spy_test["Close"].iloc[0])
+            spy_end   = float(spy_test["Close"].iloc[-1])
+            spy_return_pct = round((spy_end - spy_start) / spy_start * 100, 1)
+            print(f"  SPY return over test period: {spy_return_pct:+.1f}%")
+        else:
+            print("  SPY data unavailable, skipping baseline.")
+    except Exception as e:
+        print(f"  SPY fetch failed: {e}")
+
     # ── Write JSON for Vercel dashboard ───────────────────────────────────────
     json_path = os.path.join("web", "data", "results.json")
     try:
@@ -219,6 +240,7 @@ if all_results:
                 "epochs":   args.epochs,
                 "rl_steps": DEMO_RL_STEPS,
             },
+            "spy_return_pct": spy_return_pct,
             "results": json_records,
         }
         with open(json_path, "w") as f:

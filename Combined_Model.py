@@ -692,6 +692,7 @@ if __name__ == "__main__":
             print(f"Pipeline: {symbol}")
             min_rows = TEST_SIZE + SEQUENCE_LENGTH + 30
             bars_df = fetch_historical_data(symbol)
+            tm.sleep(1)  # avoid yfinance rate limiting
             if bars_df.empty:
                 continue
 
@@ -717,15 +718,19 @@ if __name__ == "__main__":
             # ── Backtest profit using SGD predictions ─────────────────
             current_price = sgd_result["close_prices_test"][-1]
             quantity = int((PORTFOLIO_SIZE * ALLOCATION_PERCENT / 100) // current_price)
+
+            # Flip predictions when model is sub-chance (inverted signal is useful)
+            predictions = sgd_result["predictions"].copy()
+            sgd_acc = sgd_result["accuracy"]
+            if sgd_acc <= 0.48:
+                predictions = 1 - predictions
+                sgd_acc = 1 - sgd_acc
+
             profit = calculate_profit(
-                sgd_result["predictions"],
+                predictions,
                 sgd_result["close_prices_test"],
                 quantity
             )
-
-            sgd_acc = sgd_result["accuracy"]
-            if sgd_acc <= 0.48:
-                sgd_acc = 1 - sgd_acc
 
             result_row = {
                 "Symbol":           symbol,

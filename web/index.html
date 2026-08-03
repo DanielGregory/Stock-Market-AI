@@ -163,6 +163,53 @@
       margin-top: 2px;
     }
 
+    /* Search filter */
+    .search-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    #symbol-search {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      padding: 8px 14px;
+      outline: none;
+      width: 220px;
+      transition: border-color 0.2s;
+    }
+
+    #symbol-search:focus { border-color: var(--accent); }
+    #symbol-search::placeholder { color: var(--muted); }
+
+    #search-count {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* SPY badge */
+    .spy-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(99,102,241,0.12);
+      border: 1px solid rgba(99,102,241,0.3);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-family: var(--mono);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .spy-badge .spy-lbl { font-weight: 400; color: var(--muted); }
+
     /* Top performers */
     .top-performers {
       display: grid;
@@ -521,6 +568,10 @@
 
     <!-- Results table -->
     <p class="section-title">Per-Stock Results</p>
+    <div class="search-row">
+      <input id="symbol-search" type="text" placeholder="Filter by symbol…" autocomplete="off" />
+      <span id="search-count"></span>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -591,12 +642,14 @@
         'Updated ' + d.toUTCString();
 
       const results = data.results || [];
+      const spyReturn = data.spy_return_pct ?? null;
 
       // Summary cards
       const avgGru  = results.reduce((s, r) => s + r.gru_accuracy, 0) / results.length;
       const avgSgd  = results.reduce((s, r) => s + r.sgd_accuracy, 0) / results.length;
       const avgRl   = results.reduce((s, r) => s + r.rl_win_rate,  0) / results.length;
       const totProfit = results.reduce((s, r) => s + r.backtest_profit, 0);
+      const avgReturn = results.reduce((s, r) => s + (r.return_pct ?? 0), 0) / results.length;
       const bullish = results.filter(r => r.gru_signal === 'UP').length;
 
       const cards = [
@@ -605,7 +658,16 @@
         { label: 'Avg RL Win Rate',   value: fmt(avgRl)  + '%',  cls: 'neutral' },
         { label: 'Total Backtest P&L', value: '$' + totProfit.toLocaleString('en-US', {maximumFractionDigits: 0}),
           cls: totProfit >= 0 ? 'up' : 'down' },
-        { label: 'Bullish Signals',   value: bullish + ' / ' + results.length, cls: 'neutral' },
+        {
+          label: 'Avg Return vs SPY',
+          value: (avgReturn >= 0 ? '+' : '') + fmt(avgReturn) + '%',
+          sub: spyReturn != null
+            ? `SPY: ${spyReturn >= 0 ? '+' : ''}${spyReturn.toFixed(1)}% same period`
+            : null,
+          cls: spyReturn != null
+            ? (avgReturn >= spyReturn ? 'up' : 'down')
+            : (avgReturn >= 0 ? 'up' : 'down'),
+        },
         { label: 'Stocks Analyzed',   value: results.length,     cls: 'neutral' },
       ];
 
@@ -613,6 +675,7 @@
         <div class="card">
           <div class="card-label">${c.label}</div>
           <div class="card-value ${c.cls}">${c.value}</div>
+          ${c.sub ? `<div class="card-sub">${c.sub}</div>` : ''}
         </div>
       `).join('');
 
@@ -661,6 +724,14 @@
               ${profitFmt} <span class="ret-badge ${r.backtest_profit >= 0 ? 'profit-pos' : 'profit-neg'}">${retFmt}</span>
             </span>
           </div>
+          ${spyReturn != null ? `
+          <div class="alloc-row">
+            <span class="alloc-label">vs S&P 500</span>
+            <span class="alloc-value ${(r.return_pct ?? 0) >= spyReturn ? 'profit-pos' : 'profit-neg'}">
+              ${(r.return_pct ?? 0) >= spyReturn ? '▲ ' : '▼ '}${((r.return_pct ?? 0) - spyReturn).toFixed(1)}% alpha
+              <span style="color:var(--muted);font-size:11px;font-weight:400;"> (SPY ${spyReturn >= 0 ? '+' : ''}${spyReturn.toFixed(1)}%)</span>
+            </span>
+          </div>` : ''}
 
           <div class="performer-stats">
             <div class="pstat">
@@ -690,7 +761,8 @@
       }).join('');
 
       // Table
-      document.getElementById('results-body').innerHTML = results.map(r => `
+      const tbody = document.getElementById('results-body');
+      const buildRows = (list) => list.map(r => `
         <tr>
           <td class="symbol">${r.symbol}</td>
           <td>${bar(r.gru_accuracy)}</td>
@@ -704,6 +776,23 @@
           </td>
         </tr>
       `).join('');
+
+      tbody.innerHTML = buildRows(results);
+
+      // Search / filter
+      const searchInput = document.getElementById('symbol-search');
+      const countEl = document.getElementById('search-count');
+      const updateCount = (n) => {
+        countEl.textContent = n === results.length ? `${n} stocks` : `${n} of ${results.length}`;
+      };
+      updateCount(results.length);
+
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.trim().toUpperCase();
+        const filtered = q ? results.filter(r => r.symbol.includes(q)) : results;
+        tbody.innerHTML = buildRows(filtered);
+        updateCount(filtered.length);
+      });
 
       // Charts
       const labels  = results.map(r => r.symbol);
