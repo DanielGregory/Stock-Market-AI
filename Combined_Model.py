@@ -379,8 +379,19 @@ def run_gru_stage(data, symbol, model_dir):
         all_seqs = torch.tensor(X_seq, dtype=torch.float32).to(device)
         all_probs = model(all_seqs).squeeze().cpu().numpy()
 
-    # Align probabilities back to the original data index
-    # X_seq[i] corresponds to data row SEQUENCE_LENGTH + i
+    # If the GRU is consistently wrong on training data, flip its signal.
+    # Checked on training portion only (no lookahead) so SGD and RL always
+    # receive a probability where > 0.5 genuinely means UP.
+    train_acc = accuracy_score(y_seq[:-n_test], (all_probs[:-n_test] >= 0.5).astype(int))
+    if train_acc < 0.5:
+        print(f"  [GRU] Inverted signal (train acc {train_acc:.2f}) — flipping probabilities.")
+        all_probs = 1.0 - all_probs
+
+    gru_accuracy = accuracy_score(y_seq[-n_test:], (all_probs[-n_test:] >= 0.5).astype(int))
+    next_prob = float(all_probs[-1])
+    print(f"  [GRU] Accuracy: {gru_accuracy:.2f} | Next prob: {next_prob:.3f}")
+
+    # Align (oriented) probabilities back to the original data index
     gru_prob_col = np.full(len(data), np.nan)
     for i, prob in enumerate(all_probs):
         gru_prob_col[SEQUENCE_LENGTH + i] = prob
@@ -388,13 +399,6 @@ def run_gru_stage(data, symbol, model_dir):
     data = data.copy()
     data['gru_prob'] = gru_prob_col
     data_with_gru = data.dropna(subset=['gru_prob']).copy()
-
-    gru_accuracy = accuracy_score(
-        y_seq[-n_test:],
-        (all_probs[-n_test:] >= 0.5).astype(int)
-    )
-    next_prob = float(all_probs[-1])
-    print(f"  [GRU] Accuracy: {gru_accuracy:.2f} | Next prob: {next_prob:.3f}")
 
     return data_with_gru, gru_accuracy, next_prob
 
@@ -620,9 +624,10 @@ def run_rl_stage(data, sgd_result, symbol, model_dir):
         obs, reward, terminated, truncated, _ = eval_env.step(action)
         done = terminated or truncated
         total_reward += reward
-        total_trades += 1
-        if reward > 0:
-            win_count += 1
+        if action == 1:  # only count held periods; flat/sell steps have reward=0
+            total_trades += 1
+            if reward > 0:
+                win_count += 1
 
     win_rate = win_count / total_trades if total_trades > 0 else 0
     print(f"  [RL] Total reward: {float(total_reward):.2f} | Win rate: {win_rate:.2f}")
