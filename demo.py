@@ -72,6 +72,18 @@ load_dotenv()
 has_finnhub = bool(os.getenv("FINNHUB_API_KEY", ""))
 print(f"  Sentiment     : {'enabled (Finnhub)' if has_finnhub else 'disabled (set FINNHUB_API_KEY in .env to enable)'}")
 
+def compute_signals(preds):
+    """Convert binary predictions to BUY/HOLD/SELL/FLAT labels."""
+    signals, prev = [], 0
+    for p in preds:
+        p = int(p)
+        if   p == 1 and prev == 0: signals.append("BUY")
+        elif p == 1 and prev == 1: signals.append("HOLD")
+        elif p == 0 and prev == 1: signals.append("SELL")
+        else:                       signals.append("FLAT")
+        prev = p
+    return signals
+
 all_results = []
 failed = []
 
@@ -149,6 +161,22 @@ for symbol in args.symbols:
         print(f"  Trades: {stats['n_buys']} buys, {stats['n_holds']} holds, "
               f"{stats['n_sells']} sells | Avg hold: {stats['avg_hold_weeks']}wk")
 
+        # ── Chart data: actual prices + trade signals ──────────────────────────
+        chart_data = None
+        try:
+            test_td = sgd_result["test_data"]
+            if 'Timestamp' in test_td.columns:
+                test_dates = [str(pd.Timestamp(d).date()) for d in test_td['Timestamp']]
+            else:
+                test_dates = list(range(len(predictions)))
+            chart_data = {
+                "dates":   test_dates,
+                "prices":  [round(float(p), 2) for p in sgd_result["close_prices_test"]],
+                "signals": compute_signals(predictions),
+            }
+        except Exception as ce:
+            print(f"  Warning: chart data skipped — {ce}")
+
         row = {
             "Symbol":           symbol,
             "GRU Acc %":        round(gru_acc * 100, 1),
@@ -165,6 +193,7 @@ for symbol in args.symbols:
             "Holds":            stats["n_holds"],
             "Sells":            stats["n_sells"],
             "Avg Hold (wk)":    stats["avg_hold_weeks"],
+            "chart_data":       chart_data,
         }
         all_results.append(row)
 
@@ -232,6 +261,7 @@ if all_results:
                 "n_holds":            r["Holds"],
                 "n_sells":            r["Sells"],
                 "avg_hold_weeks":     r["Avg Hold (wk)"],
+                "chart_data":         r.get("chart_data"),
             })
         payload = {
             "last_updated": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),

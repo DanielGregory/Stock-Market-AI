@@ -462,6 +462,77 @@
       .table-wrap     { -webkit-overflow-scrolling: touch; margin-bottom: 24px; }
     }
 
+    /* ── Signal chart ────────────────────────────────────── */
+    .stock-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .stock-tab {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+
+    .stock-tab:hover { border-color: var(--accent); color: var(--accent); }
+
+    .stock-tab.active {
+      background: rgba(99,102,241,0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .signal-legend {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .sig-item { display: flex; align-items: center; gap: 6px; }
+
+    .sig-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      display: inline-block; flex-shrink: 0;
+    }
+
+    .sig-tri-up {
+      width: 0; height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-bottom: 9px solid var(--green);
+      display: inline-block; flex-shrink: 0;
+    }
+
+    .sig-tri-down {
+      width: 0; height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 9px solid var(--red);
+      display: inline-block; flex-shrink: 0;
+    }
+
+    #signal-placeholder {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 48px 20px;
+    }
+
+    .tr-clickable { cursor: pointer; }
+    .tr-clickable:hover td { background: rgba(99,102,241,0.06); }
+
     /* ── Documentation section ───────────────────────────── */
     .docs-toggle {
       display: flex;
@@ -750,6 +821,25 @@
       <div class="chart-card">
         <div class="chart-title">Backtest Profit ($)</div>
         <canvas id="profit-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Price & Signal Chart -->
+    <p class="section-title">Price &amp; Trading Signals</p>
+    <div class="chart-card" style="margin-bottom:32px">
+      <div id="signal-tabs" class="stock-tabs"></div>
+      <div class="signal-legend">
+        <span class="sig-item"><span class="sig-tri-up"></span> BUY — entered long</span>
+        <span class="sig-item"><span class="sig-dot" style="background:var(--accent)"></span> HOLD — staying long</span>
+        <span class="sig-item"><span class="sig-tri-down"></span> SELL — exited position</span>
+        <span class="sig-item"><span class="sig-dot" style="background:var(--border)"></span> FLAT — out of market</span>
+        <span class="sig-item" style="margin-left:auto">
+          <span class="sig-dot" style="background:rgba(34,197,94,0.25);width:16px;border-radius:2px"></span> held period
+        </span>
+      </div>
+      <div style="position:relative">
+        <canvas id="signal-chart" style="max-height:280px;display:none"></canvas>
+        <div id="signal-placeholder">Run demo.py to populate chart data, then select a stock above.</div>
       </div>
     </div>
 
@@ -1132,7 +1222,7 @@
       // Table
       const tbody = document.getElementById('results-body');
       const buildRows = (list) => list.map(r => `
-        <tr>
+        <tr class="tr-clickable" onclick="showSignalChart('${r.symbol}')" title="Show ${r.symbol} signal chart">
           <td class="symbol">${r.symbol}</td>
           <td>${bar(r.gru_accuracy)}</td>
           <td class="${r.gru_signal === 'UP' ? 'signal-up' : 'signal-down'}">${r.gru_signal}</td>
@@ -1147,6 +1237,9 @@
       `).join('');
 
       tbody.innerHTML = buildRows(results);
+
+      // Signal chart tabs
+      buildSignalTabs(results);
 
       // Search / filter
       const searchInput = document.getElementById('symbol-search');
@@ -1237,6 +1330,152 @@
     }
 
     load();
+
+    // ── Signal chart ───────────────────────────────────────────────────────────
+    let _signalChart = null;
+    let _allResults  = [];
+
+    function buildSignalTabs(results) {
+      _allResults = results;
+      const hasChart = results.filter(r => r.chart_data);
+      if (!hasChart.length) return;
+
+      document.getElementById('signal-tabs').innerHTML = hasChart.map(r => `
+        <button class="stock-tab" onclick="showSignalChart('${r.symbol}')">${r.symbol}</button>
+      `).join('');
+
+      // Auto-select top performer
+      const top = [...results]
+        .filter(r => r.chart_data)
+        .sort((a, b) =>
+          (b.gru_accuracy + b.sgd_accuracy + b.rl_win_rate) -
+          (a.gru_accuracy + a.sgd_accuracy + a.rl_win_rate)
+        )[0];
+      if (top) showSignalChart(top.symbol);
+    }
+
+    function showSignalChart(symbol) {
+      const r = _allResults.find(x => x.symbol === symbol);
+      if (!r || !r.chart_data) return;
+
+      // Update tab active state
+      document.querySelectorAll('.stock-tab').forEach(t => {
+        t.classList.toggle('active', t.textContent === symbol);
+      });
+
+      const { dates, prices, signals } = r.chart_data;
+      const labels = dates;
+
+      // Colors per signal
+      const ptColor = signals.map(s =>
+        s === 'BUY'  ? '#22c55e' :
+        s === 'HOLD' ? '#6366f1' :
+        s === 'SELL' ? '#ef4444' : 'rgba(100,116,139,0.4)'
+      );
+      const ptRadius = signals.map(s =>
+        s === 'BUY' || s === 'SELL' ? 9 : s === 'HOLD' ? 5 : 2
+      );
+      const ptStyle = signals.map(s =>
+        s === 'BUY'  ? 'triangle' :
+        s === 'SELL' ? 'triangle' : 'circle'
+      );
+      const ptRotation = signals.map(s => s === 'SELL' ? 180 : 0);
+
+      // Green shading for held periods
+      const heldPrices = prices.map((p, i) =>
+        (signals[i] === 'BUY' || signals[i] === 'HOLD') ? p : null
+      );
+
+      const datasets = [
+        {
+          label: 'Close Price',
+          data: prices,
+          borderColor: '#64748b',
+          borderWidth: 1.5,
+          pointRadius: ptRadius,
+          pointBackgroundColor: ptColor,
+          pointBorderColor: ptColor,
+          pointStyle: ptStyle,
+          pointRotation: ptRotation,
+          fill: false,
+          tension: 0.2,
+          order: 1,
+        },
+        {
+          label: 'Held (long)',
+          data: heldPrices,
+          borderColor: 'rgba(34,197,94,0.35)',
+          backgroundColor: 'rgba(34,197,94,0.09)',
+          borderWidth: 1,
+          borderDash: [4, 3],
+          pointRadius: 0,
+          fill: 'origin',
+          spanGaps: false,
+          tension: 0.2,
+          order: 2,
+        },
+      ];
+
+      const canvas  = document.getElementById('signal-chart');
+      const holder  = document.getElementById('signal-placeholder');
+
+      if (_signalChart) { _signalChart.destroy(); _signalChart = null; }
+
+      canvas.style.display = 'block';
+      holder.style.display = 'none';
+
+      _signalChart = new Chart(canvas, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  if (ctx.datasetIndex !== 0) return null;
+                  const i = ctx.dataIndex;
+                  const sig = signals[i];
+                  const price = '$' + prices[i].toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                  return `${price}  [${sig}]`;
+                },
+              },
+            },
+            title: {
+              display: true,
+              text: `${symbol} — Last ${prices.length} Trading Days`,
+              color: '#94a3b8',
+              font: { size: 12, weight: '600' },
+              padding: { bottom: 8 },
+            },
+          },
+          scales: {
+            x: {
+              grid: { color: '#1e2130' },
+              ticks: {
+                maxTicksLimit: 10,
+                maxRotation: 0,
+                font: { size: 11 },
+                callback: (_, i) => {
+                  if (i % Math.ceil(labels.length / 10) !== 0) return '';
+                  return labels[i] ? labels[i].slice(5) : '';
+                },
+              },
+            },
+            y: {
+              grid: { color: '#1e2130' },
+              ticks: {
+                font: { size: 11 },
+                callback: v => '$' + v.toLocaleString('en-US', {minimumFractionDigits: 0}),
+              },
+            },
+          },
+        },
+      });
+    }
 
     function toggleDocs() {
       const body = document.getElementById('docs-body');

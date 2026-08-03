@@ -60,9 +60,20 @@ TEST_SIZE = 100          # ~20 weekly periods for meaningful evaluation
 HOLD_PERIOD = 5          # trading days per prediction period (1 week)
 
 BASE_FEATURES = [
+    # Price / OHLCV
     'Open', 'High', 'Low', 'Close', 'Volume', 'Previous_Close',
-    'MA_20', 'Volatility_20', 'RSI', 'Obv', 'sentiment',
-    'MACD_Crossover', 'Volume_5'
+    # Trend
+    'MA_20', 'MA_50', 'Price_MA20_pct',
+    # Volatility / range
+    'Volatility_20', 'ATR_14', 'BB_pct', 'High_Low_pct',
+    # Momentum oscillators
+    'RSI', 'Stoch_K', 'Stoch_D', 'ROC_5', 'ROC_20', 'Candle_body',
+    # Volume
+    'Obv', 'Volume_ratio',
+    # MACD family
+    'MACD', 'MACD_hist', 'MACD_Crossover',
+    # Sentiment
+    'sentiment',
 ]
 # Features seen by SGD and RL include GRU output
 EXTENDED_FEATURES = BASE_FEATURES + ['gru_prob']
@@ -131,16 +142,48 @@ def fetch_historical_data(symbol, days=400):
 def add_features(data):
     try:
         data['Previous_Close'] = data['Close'].shift(1)
+
+        # ── Trend ─────────────────────────────────────────────────────────────
         data['MA_20'] = data['Close'].rolling(window=20).mean()
+        data['MA_50'] = data['Close'].rolling(window=50).mean()
+        data['Price_MA20_pct'] = (data['Close'] - data['MA_20']) / (data['MA_20'] + 1e-9) * 100
+
+        # ── Volatility / range ────────────────────────────────────────────────
         data['Volatility_20'] = data['Close'].rolling(window=20).std()
         data['Momentum'] = data['Close'] - data['Previous_Close']
-        data['Volume_5'] = data['Volume'].rolling(window=5).mean()
 
+        data['ATR_TR'] = data.apply(
+            lambda row: max(
+                row['High'] - row['Low'],
+                abs(row['High'] - row['Previous_Close']),
+                abs(row['Low'] - row['Previous_Close'])
+            ), axis=1
+        )
+        data['ATR_14'] = data['ATR_TR'].rolling(window=14).mean()
+
+        bb_std = data['Close'].rolling(window=20).std()
+        bb_upper = data['MA_20'] + 2 * bb_std
+        bb_lower = data['MA_20'] - 2 * bb_std
+        data['BB_pct'] = (data['Close'] - bb_lower) / (bb_upper - bb_lower + 1e-9)
+
+        data['High_Low_pct'] = (data['High'] - data['Low']) / (data['Close'] + 1e-9) * 100
+        data['Candle_body']  = (data['Close'] - data['Open']) / (data['Open'] + 1e-9) * 100
+
+        # ── Momentum oscillators ──────────────────────────────────────────────
         delta = data['Close'].diff(1)
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         data['RSI'] = 100 - (100 / (1 + gain / loss))
 
+        low_14  = data['Low'].rolling(window=14).min()
+        high_14 = data['High'].rolling(window=14).max()
+        data['Stoch_K'] = (data['Close'] - low_14) / (high_14 - low_14 + 1e-9) * 100
+        data['Stoch_D'] = data['Stoch_K'].rolling(window=3).mean()
+
+        data['ROC_5']  = (data['Close'] / data['Close'].shift(5)  - 1) * 100
+        data['ROC_20'] = (data['Close'] / data['Close'].shift(20) - 1) * 100
+
+        # ── Volume ────────────────────────────────────────────────────────────
         obv = [0]
         for i in range(1, len(data)):
             if data['Close'].iloc[i] > data['Close'].iloc[i - 1]:
@@ -151,24 +194,20 @@ def add_features(data):
                 obv.append(obv[-1])
         data['Obv'] = obv
 
+        vol_20 = data['Volume'].rolling(window=20).mean()
+        data['Volume_ratio'] = data['Volume'] / (vol_20 + 1e-9)
+
+        # ── MACD family ───────────────────────────────────────────────────────
         data['12_EMAs'] = data['Close'].ewm(span=12, adjust=False).mean()
         data['26_EMAs'] = data['Close'].ewm(span=26, adjust=False).mean()
-        data['MACD'] = data['12_EMAs'] - data['26_EMAs']
-        data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
+        data['MACD']         = data['12_EMAs'] - data['26_EMAs']
+        data['Signal_Line']  = data['MACD'].ewm(span=9, adjust=False).mean()
+        data['MACD_hist']    = data['MACD'] - data['Signal_Line']
         data['MACD_Crossover'] = (data['MACD'] > data['Signal_Line']).astype(int)
 
-        # Weekly target: will price be higher 5 trading days from now?
-        data['Direction'] = (data['Close'].shift(-HOLD_PERIOD) > data['Close']).astype(int)
+        # ── Weekly target: will price be higher 5 trading days from now? ──────
+        data['Direction']       = (data['Close'].shift(-HOLD_PERIOD) > data['Close']).astype(int)
         data['Price_Change_Pct'] = (data['Close'].shift(-HOLD_PERIOD) - data['Close']) / data['Close']
-
-        data['ATR_TR'] = data.apply(
-            lambda row: max(
-                row['High'] - row['Low'],
-                abs(row['High'] - row['Previous_Close']),
-                abs(row['Low'] - row['Previous_Close'])
-            ), axis=1
-        )
-        data['ATR_14'] = data['ATR_TR'].rolling(window=14).mean()
 
         data.dropna(inplace=True)
         return data
@@ -285,8 +324,11 @@ def run_gru_stage(data, symbol, model_dir):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 
     if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        print(f"  [GRU] Loaded existing weights for {symbol}.")
+        try:
+            model.load_state_dict(torch.load(model_path, map_location=device))
+            print(f"  [GRU] Loaded existing weights for {symbol}.")
+        except Exception:
+            print(f"  [GRU] Feature set changed — retraining for {symbol}.")
     else:
         print(f"  [GRU] Training new model for {symbol}...")
 
@@ -372,11 +414,18 @@ def run_sgd_stage(data, symbol, model_dir):
 
     best_cv_f1 = 0.0
 
+    model = None
     if os.path.exists(model_path):
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-        print(f"  [SGD] Loaded existing model for {symbol}.")
-    else:
+        try:
+            with open(model_path, 'rb') as f:
+                candidate = pickle.load(f)
+            candidate.decision_function(X_train_s[:1])  # dimension check
+            model = candidate
+            print(f"  [SGD] Loaded existing model for {symbol}.")
+        except Exception:
+            print(f"  [SGD] Feature set changed — retraining for {symbol}.")
+
+    if model is None:
         model = SGDClassifier(random_state=42)
         param_grid = {
             'loss': ['hinge', 'log_loss'],
@@ -540,8 +589,12 @@ def run_rl_stage(data, sgd_result, symbol, model_dir):
     vec_env = DummyVecEnv([lambda: env])
 
     if os.path.exists(model_path):
-        rl_model = PPO.load(model_path, env=vec_env)
-        print(f"  [RL] Loaded existing model for {symbol}.")
+        try:
+            rl_model = PPO.load(model_path, env=vec_env)
+            print(f"  [RL] Loaded existing model for {symbol}.")
+        except Exception:
+            print(f"  [RL] Feature set changed — retraining for {symbol}.")
+            rl_model = PPO("MlpPolicy", vec_env, verbose=0, learning_rate=0.001, seed=seed)
     else:
         rl_model = PPO("MlpPolicy", vec_env, verbose=0, learning_rate=0.001, seed=seed)
         print(f"  [RL] Training new model for {symbol}...")
