@@ -218,45 +218,93 @@ def add_features(data):
         return pd.DataFrame()
 
 
+def _unix_to_naive_date(ts: int) -> pd.Timestamp:
+    """Convert a Unix timestamp to a naive (no-tz) ET calendar date."""
+    return (
+        pd.Timestamp(int(ts), unit='s')
+        .tz_localize('UTC')
+        .tz_convert('America/New_York')
+        .normalize()
+        .tz_localize(None)
+    )
+
+
 def add_sentiment(data, symbol):
-    if not Finnhub_API_Key:
+    """
+    Merge daily news-sentiment scores into data['sentiment'].
+
+    Sources tried in order:
+      1. yfinance .news  — free, recent headlines only (last few weeks)
+      2. Finnhub         — full 600-day history; requires FINNHUB_API_KEY in .env
+
+    Days with no news default to 0.0 (neutral).
+    """
+    analyzer = SentimentIntensityAnalyzer()
+    sentiment_map: dict = {}   # date → list[float]
+
+    # ── Source 1: yfinance (always free) ─────────────────────────────────────
+    try:
+        news_list = yf.Ticker(symbol).news or []
+        for item in news_list:
+            # yfinance returns different shapes across versions
+            title = item.get('title') or ''
+            if not title:
+                content = item.get('content') or {}
+                title = content.get('title', '') if isinstance(content, dict) else ''
+            ts = item.get('providerPublishTime') or item.get('pubDate') or 0
+            if not title or not ts:
+                continue
+            try:
+                date = _unix_to_naive_date(ts)
+            except Exception:
+                continue
+            sentiment_map.setdefault(date, []).append(
+                analyzer.polarity_scores(title)['compound']
+            )
+        if sentiment_map:
+            total = sum(len(v) for v in sentiment_map.values())
+            print(f"  Sentiment: {total} articles via yfinance (free)")
+    except Exception as e:
+        print(f"  yfinance news unavailable for {symbol}: {e}")
+
+    # ── Source 2: Finnhub (optional, full history) ────────────────────────────
+    if Finnhub_API_Key:
+        try:
+            today = datetime.today()
+            from_date = (today - timedelta(days=600)).strftime("%Y-%m-%d")
+            to_date   = today.strftime("%Y-%m-%d")
+            url = (
+                f"https://finnhub.io/api/v1/company-news?symbol={symbol}"
+                f"&from={from_date}&to={to_date}&token={Finnhub_API_Key}"
+            )
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                for item in (resp.json() or []):
+                    title = item.get('headline', '')
+                    ts    = item.get('datetime', 0)
+                    if not title or not ts:
+                        continue
+                    try:
+                        date = _unix_to_naive_date(ts)
+                    except Exception:
+                        continue
+                    sentiment_map.setdefault(date, []).append(
+                        analyzer.polarity_scores(title)['compound']
+                    )
+            tm.sleep(1)
+        except Exception as e:
+            print(f"  Finnhub unavailable for {symbol}: {e}")
+
+    if not sentiment_map:
         data['sentiment'] = 0.0
         return data
-    try:
-        today = datetime.today()
-        from_date = (today - timedelta(days=400)).strftime("%Y-%m-%d")
-        to_date = today.strftime("%Y-%m-%d")
-        url = (
-            f"https://finnhub.io/api/v1/company-news?symbol={symbol}"
-            f"&from={from_date}&to={to_date}&token={Finnhub_API_Key}"
-        )
-        response = requests.get(url, timeout=10)
-        if response.status_code != 200 or not response.json():
-            data['sentiment'] = 0.0
-            return data
-        news_df = pd.DataFrame(response.json())
-        if news_df.empty:
-            data['sentiment'] = 0.0
-            return data
-        news_df['Timestamp'] = (
-            pd.to_datetime(news_df['datetime'], unit='s')
-            .dt.floor('D')
-            .dt.tz_localize('UTC')
-            .dt.tz_convert('America/New_York')
-            .dt.normalize()
-            .dt.tz_localize(None)
-        )
-        analyzer = SentimentIntensityAnalyzer()
-        news_df['sentiment'] = news_df['headline'].apply(
-            lambda t: analyzer.polarity_scores(t)['compound']
-        )
-        sentiment_by_date = news_df.groupby('Timestamp')['sentiment'].mean().reset_index()
-        data = pd.merge(data, sentiment_by_date, how='left', on='Timestamp')
-        data['sentiment'] = data['sentiment'].fillna(0.0)
-        tm.sleep(1)
-    except Exception as e:
-        print(f"Sentiment error for {symbol}: {e}")
-        data['sentiment'] = 0.0
+
+    sentiment_df = pd.DataFrame([
+        {'Timestamp': date, 'sentiment': float(np.mean(scores))}
+        for date, scores in sentiment_map.items()
+    ])
+    data = pd.merge(data, sentiment_df, how='left', on='Timestamp')
+    data['sentiment'] = data['sentiment'].fillna(0.0)
     return data
 
 

@@ -21,8 +21,8 @@ import pandas as pd
 parser = argparse.ArgumentParser(description="Stock Market AI — Demo")
 parser.add_argument(
     "--symbols", nargs="+",
-    default=["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"],
-    help="Stock ticker symbols to run (default: AAPL MSFT GOOGL TSLA NVDA)"
+    default=["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA", "AMZN", "META", "JPM"],
+    help="Stock ticker symbols to run (default: AAPL MSFT GOOGL TSLA NVDA AMZN META JPM)"
 )
 parser.add_argument(
     "--epochs", type=int, default=10,
