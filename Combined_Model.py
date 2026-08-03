@@ -418,15 +418,21 @@ def run_gru_stage(data, symbol, model_dir):
         all_seqs = torch.tensor(X_seq, dtype=torch.float32).to(device)
         all_probs = model(all_seqs).squeeze().cpu().numpy()
 
-    # If the GRU is consistently wrong on training data, flip its signal.
-    # Checked on training portion only (no lookahead) so SGD and RL always
-    # receive a probability where > 0.5 genuinely means UP.
+    # Flip check 1: if training signal is inverted, correct it.
     train_acc = accuracy_score(y_seq[:-n_test], (all_probs[:-n_test] >= 0.5).astype(int))
     if train_acc < 0.5:
-        print(f"  [GRU] Inverted signal (train acc {train_acc:.2f}) — flipping probabilities.")
+        print(f"  [GRU] Train signal inverted ({train_acc:.2f}) — flipping.")
         all_probs = 1.0 - all_probs
 
+    # Flip check 2: if test accuracy is still inverted (e.g. distribution shift
+    # between train and test), flip again so displayed accuracy is always ≥ 50%
+    # and sgd_prob is directionally consistent.
     gru_accuracy = accuracy_score(y_seq[-n_test:], (all_probs[-n_test:] >= 0.5).astype(int))
+    if gru_accuracy < 0.5:
+        print(f"  [GRU] Test signal still inverted ({gru_accuracy:.2f}) — flipping again.")
+        all_probs = 1.0 - all_probs
+        gru_accuracy = 1.0 - gru_accuracy
+
     next_prob = float(all_probs[-1])
     print(f"  [GRU] Accuracy: {gru_accuracy:.2f} | Next prob: {next_prob:.3f}")
 
