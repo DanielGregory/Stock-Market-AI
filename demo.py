@@ -154,10 +154,18 @@ for symbol in args.symbols:
             quantity,
         )
 
+        # ── Buy-and-hold return over the same test window ─────────────────────
+        p_test = sgd_result["close_prices_test"]
+        hold_return_pct = round(
+            (float(p_test[-1]) - float(p_test[0])) / float(p_test[0]) * 100, 1
+        )
+        alpha = round(stats["return_pct"] - hold_return_pct, 1)
+
         elapsed = time.time() - t0
         print(f"\n  Done in {elapsed:.0f}s")
         print(f"  Allocation: ${stats['starting_allocation']:,.0f} | "
               f"Profit: ${stats['profit']:+,.0f} | Return: {stats['return_pct']:+.1f}%")
+        print(f"  Buy & Hold: {hold_return_pct:+.1f}%  |  Alpha: {alpha:+.1f}%")
         print(f"  Trades: {stats['n_buys']} buys, {stats['n_holds']} holds, "
               f"{stats['n_sells']} sells | Avg hold: {stats['avg_hold_weeks']}wk")
 
@@ -187,6 +195,8 @@ for symbol in args.symbols:
             "RL Win Rate %":    round(rl_result["win_rate"] * 100, 1),
             "Backtest $":       round(stats["profit"], 0),
             "Return %":         stats["return_pct"],
+            "Hold Return %":    hold_return_pct,
+            "Alpha %":          alpha,
             "Allocation $":     stats["starting_allocation"],
             "Qty":              stats["quantity"],
             "Buys":             stats["n_buys"],
@@ -261,6 +271,8 @@ if all_results:
                 "n_holds":            r["Holds"],
                 "n_sells":            r["Sells"],
                 "avg_hold_weeks":     r["Avg Hold (wk)"],
+                "hold_return_pct":    r["Hold Return %"],
+                "alpha_pct":          r["Alpha %"],
                 "chart_data":         r.get("chart_data"),
             })
         payload = {

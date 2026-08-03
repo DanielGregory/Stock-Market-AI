@@ -861,6 +861,9 @@
             <th>SGD Last-10</th>
             <th>RL Win Rate</th>
             <th>Backtest $</th>
+            <th>Strategy %</th>
+            <th>Hold %</th>
+            <th>Alpha</th>
           </tr>
         </thead>
         <tbody id="results-body"></tbody>
@@ -1108,7 +1111,9 @@
       const avgSgd  = results.reduce((s, r) => s + r.sgd_accuracy, 0) / results.length;
       const avgRl   = results.reduce((s, r) => s + r.rl_win_rate,  0) / results.length;
       const totProfit = results.reduce((s, r) => s + r.backtest_profit, 0);
-      const avgReturn = results.reduce((s, r) => s + (r.return_pct ?? 0), 0) / results.length;
+      const avgReturn     = results.reduce((s, r) => s + (r.return_pct     ?? 0), 0) / results.length;
+      const avgHoldReturn = results.reduce((s, r) => s + (r.hold_return_pct ?? 0), 0) / results.length;
+      const avgAlpha      = avgReturn - avgHoldReturn;
       const bullish = results.filter(r => r.gru_signal === 'UP').length;
 
       const cards = [
@@ -1118,14 +1123,12 @@
         { label: 'Total Backtest P&L', value: '$' + totProfit.toLocaleString('en-US', {maximumFractionDigits: 0}),
           cls: totProfit >= 0 ? 'up' : 'down' },
         {
-          label: 'Avg Return vs SPY',
+          label: 'Strategy vs Buy & Hold',
           value: (avgReturn >= 0 ? '+' : '') + fmt(avgReturn) + '%',
-          sub: spyReturn != null
-            ? `SPY: ${spyReturn >= 0 ? '+' : ''}${spyReturn.toFixed(1)}% same period`
-            : null,
-          cls: spyReturn != null
-            ? (avgReturn >= spyReturn ? 'up' : 'down')
-            : (avgReturn >= 0 ? 'up' : 'down'),
+          sub: `Buy & Hold: ${avgHoldReturn >= 0 ? '+' : ''}${fmt(avgHoldReturn)}%` +
+               `  ·  Alpha: ${avgAlpha >= 0 ? '+' : ''}${fmt(avgAlpha)}%` +
+               (spyReturn != null ? `  ·  SPY: ${spyReturn >= 0 ? '+' : ''}${spyReturn.toFixed(1)}%` : ''),
+          cls: avgAlpha >= 0 ? 'up' : 'down',
         },
         { label: 'Stocks Analyzed',   value: results.length,     cls: 'neutral' },
       ];
@@ -1183,6 +1186,20 @@
               ${profitFmt} <span class="ret-badge ${r.backtest_profit >= 0 ? 'profit-pos' : 'profit-neg'}">${retFmt}</span>
             </span>
           </div>
+          ${r.hold_return_pct != null ? (() => {
+            const hold = r.hold_return_pct;
+            const alpha = r.alpha_pct ?? ((r.return_pct ?? 0) - hold);
+            const holdSign = hold >= 0 ? '+' : '';
+            const alphaSign = alpha >= 0 ? '+' : '';
+            return `
+          <div class="alloc-row">
+            <span class="alloc-label">vs Buy &amp; Hold</span>
+            <span class="alloc-value ${alpha >= 0 ? 'profit-pos' : 'profit-neg'}">
+              ${alphaSign}${alpha.toFixed(1)}% alpha
+              <span style="color:var(--muted);font-size:11px;font-weight:400;"> (hold: ${holdSign}${hold.toFixed(1)}%)</span>
+            </span>
+          </div>`;
+          })() : ''}
           ${spyReturn != null ? `
           <div class="alloc-row">
             <span class="alloc-label">vs S&P 500</span>
@@ -1232,6 +1249,15 @@
           <td>${bar(r.rl_win_rate)}</td>
           <td class="${profitClass(r.backtest_profit)}">
             ${r.backtest_profit >= 0 ? '+' : ''}$${r.backtest_profit.toLocaleString('en-US', {maximumFractionDigits: 0})}
+          </td>
+          <td class="${profitClass(r.return_pct ?? 0)}">
+            ${r.return_pct != null ? (r.return_pct >= 0 ? '+' : '') + r.return_pct.toFixed(1) + '%' : '—'}
+          </td>
+          <td class="${profitClass(r.hold_return_pct ?? 0)}">
+            ${r.hold_return_pct != null ? (r.hold_return_pct >= 0 ? '+' : '') + r.hold_return_pct.toFixed(1) + '%' : '—'}
+          </td>
+          <td class="${profitClass(r.alpha_pct ?? 0)}" style="font-weight:600">
+            ${r.alpha_pct != null ? (r.alpha_pct >= 0 ? '+' : '') + r.alpha_pct.toFixed(1) + '%' : '—'}
           </td>
         </tr>
       `).join('');
@@ -1386,7 +1412,23 @@
         (signals[i] === 'BUY' || signals[i] === 'HOLD') ? p : null
       );
 
+      // Buy-and-hold reference: straight line from start price to end price
+      const holdLine = prices.map((_, i) =>
+        prices[0] + (prices[prices.length - 1] - prices[0]) * (i / (prices.length - 1))
+      );
+
       const datasets = [
+        {
+          label: 'Buy & Hold',
+          data: holdLine,
+          borderColor: 'rgba(245,158,11,0.5)',
+          borderWidth: 1.5,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          tension: 0,
+          order: 3,
+        },
         {
           label: 'Close Price',
           data: prices,
@@ -1432,7 +1474,16 @@
           maintainAspectRatio: true,
           interaction: { mode: 'index', intersect: false },
           plugins: {
-            legend: { display: false },
+            legend: {
+              display: true,
+              labels: {
+                filter: item => item.text !== 'Held (long)',
+                boxWidth: 24,
+                boxHeight: 2,
+                font: { size: 11 },
+                color: '#94a3b8',
+              },
+            },
             tooltip: {
               callbacks: {
                 label: ctx => {
@@ -1446,7 +1497,13 @@
             },
             title: {
               display: true,
-              text: `${symbol} — Last ${prices.length} Trading Days`,
+              text: (() => {
+                const rd = _allResults.find(x => x.symbol === symbol);
+                const ret  = rd?.return_pct  != null ? ` Strategy: ${rd.return_pct  >= 0 ? '+' : ''}${rd.return_pct.toFixed(1)}%` : '';
+                const hold = rd?.hold_return_pct != null ? `  |  Buy & Hold: ${rd.hold_return_pct >= 0 ? '+' : ''}${rd.hold_return_pct.toFixed(1)}%` : '';
+                const alpha = rd?.alpha_pct != null ? `  |  Alpha: ${rd.alpha_pct >= 0 ? '+' : ''}${rd.alpha_pct.toFixed(1)}%` : '';
+                return `${symbol} — Last ${prices.length} Days${ret}${hold}${alpha}`;
+              })(),
               color: '#94a3b8',
               font: { size: 12, weight: '600' },
               padding: { bottom: 8 },
