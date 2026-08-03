@@ -48,4 +48,5 @@ jobs:
           git add web/data/results.json demo_results.xlsx
           git add Demo_Models/ 2>/dev/null || true
           git diff --cached --quiet || git commit -m "chore: update dashboard results [skip ci]"
-          git push
+          git pull --rebase origin main
+          git push origin main
