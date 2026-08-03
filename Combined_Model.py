@@ -99,35 +99,37 @@ class GRUModel(nn.Module):
         return torch.sigmoid(self.fc(out))
 
 
-class TradingLoss(nn.Module):
+class WeightedBCELoss(nn.Module):
     """
-    Combined loss with two components:
+    Magnitude-weighted BCE: errors on larger price moves cost proportionally more.
 
-    1. Profit weight — wrong predictions on large price moves cost more,
-       aligning training with actual P&L impact.
+    pos_weight corrects for class imbalance — in bull markets UP weeks outnumber
+    DOWN weeks, which can cause a naïve model to just predict UP every time.
+    Setting pos_weight = (# down weeks) / (# up weeks) re-balances the gradient.
 
-    2. Anti-lag penalty — technical indicators lag the market by design.
-       When the model predicts the same direction as yesterday AND is wrong,
-       the penalty scales up by lag_penalty. This pushes the model to
-       anticipate reversals instead of blindly following lagging signals.
+    The previous TradingLoss included an "anti-lag penalty" that extra-penalized
+    trend-following predictions when wrong. On trending markets this created a
+    contrarian bias, pushing GRU accuracy below 50% (predicting DOWN in an
+    uptrend). This simpler loss avoids that pathology.
     """
-    def __init__(self, lag_penalty: float = 1.5):
+    def __init__(self, pos_weight: float = 1.0):
         super().__init__()
-        self.lag_penalty = lag_penalty
+        self.pos_weight = pos_weight
 
-    def forward(self, predictions, targets, price_changes, prev_directions):
+    def forward(self, predictions, targets, price_changes, prev_dirs=None):
         bce = F.binary_cross_entropy(predictions.squeeze(), targets, reduction='none')
-        profit_weights = price_changes.abs() + 1.0
-        pred_binary = (predictions.squeeze() >= 0.5).float()
-        is_trend_following = (pred_binary == prev_directions).float()
-        is_wrong = (pred_binary != targets).float()
-        lag_weights = 1.0 + self.lag_penalty * is_trend_following * is_wrong
-        return (bce * profit_weights * lag_weights).mean()
+        magnitude_weights = price_changes.abs() * 5.0 + 1.0
+        class_weights = torch.where(
+            targets == 1,
+            torch.full_like(targets, self.pos_weight),
+            torch.ones_like(targets),
+        )
+        return (bce * magnitude_weights * class_weights).mean()
 
 
 # ── Data pipeline (shared across all stages) ──────────────────────────────────
 
-def fetch_historical_data(symbol, days=400):
+def fetch_historical_data(symbol, days=600):
     try:
         df = yf.Ticker(symbol).history(period=f"{days}d", interval="1d")
         df.reset_index(inplace=True)
@@ -318,8 +320,12 @@ def run_gru_stage(data, symbol, model_dir):
     )
     val_t = _t(X_val, y_val, pc_val, pd_val)
 
+    n_up = float(y_train.sum())
+    n_down = float(len(y_train) - n_up)
+    pos_weight = n_down / n_up if n_up > 0 else 1.0
+
     model = GRUModel(input_size=len(BASE_FEATURES)).to(device)
-    criterion = TradingLoss(lag_penalty=1.5)
+    criterion = WeightedBCELoss(pos_weight=pos_weight)
     optimizer = torch.optim.Adam(model.parameters(), lr=GRU_LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
 
@@ -332,7 +338,7 @@ def run_gru_stage(data, symbol, model_dir):
     else:
         print(f"  [GRU] Training new model for {symbol}...")
 
-    PATIENCE = 7
+    PATIENCE = 10
     best_val_loss = float('inf')
     patience_counter = 0
     best_weights = copy.deepcopy(model.state_dict())

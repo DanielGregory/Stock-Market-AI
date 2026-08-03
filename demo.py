@@ -94,7 +94,7 @@ for symbol in args.symbols:
     try:
         # ── Fetch & engineer features ──────────────────────────────────────
         print(f"\n  Fetching {symbol} data from Yahoo Finance...")
-        bars_df = pipeline.fetch_historical_data(symbol, days=400)
+        bars_df = pipeline.fetch_historical_data(symbol, days=600)
         time.sleep(1)  # avoid yfinance rate limiting
         if bars_df.empty:
             print(f"  No data returned for {symbol}, skipping.")

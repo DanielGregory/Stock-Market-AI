@@ -26,6 +26,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore cached models
+        run: |
+          git fetch origin main
+          git checkout origin/main -- Demo_Models/ 2>/dev/null || echo "No cached models yet — training fresh"
+
       - name: Run demo pipeline
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
@@ -33,13 +38,14 @@ jobs:
         run: |
           python demo.py \
             --symbols AAPL MSFT GOOGL TSLA NVDA \
-            --epochs 10 \
-            --steps 2000
+            --epochs 30 \
+            --steps 8000
 
       - name: Commit updated results
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add web/data/results.json demo_results.xlsx
+          git add Demo_Models/ 2>/dev/null || true
           git diff --cached --quiet || git commit -m "chore: update dashboard results [skip ci]"
           git push
