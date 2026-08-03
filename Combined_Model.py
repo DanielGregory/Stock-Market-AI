@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from dotenv import load_dotenv
-from sklearn.linear_model import SGDClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, confusion_matrix,
@@ -58,6 +58,7 @@ GRU_EPOCHS = 30
 BATCH_SIZE = 32
 TEST_SIZE = 100          # ~20 weekly periods for meaningful evaluation
 HOLD_PERIOD = 5          # trading days per prediction period (1 week)
+RF_CONFIDENCE = 0.55     # minimum predicted probability to trigger a BUY signal
 
 BASE_FEATURES = [
     # Price / OHLCV
@@ -445,21 +446,32 @@ def run_gru_stage(data, symbol, model_dir):
 # ── Stage 2: SGD uses base features + gru_prob ───────────────────────────────
 
 def run_sgd_stage(data, symbol, model_dir):
+    """
+    Stage 2 classifier — Random Forest replaces the former SGD linear model.
+
+    SGD could only draw a straight line through feature space; RF learns
+    non-linear decision boundaries (e.g. RSI overbought AND MACD turning AND
+    GRU says UP) that the simpler model missed.  predict_proba lets us apply a
+    confidence threshold so we only signal BUY when the model is genuinely sure,
+    not on every marginal 51% call.
+    """
     os.makedirs(model_dir, exist_ok=True)
-    model_path = os.path.join(model_dir, f"{symbol}_combined_sgd.pkl")
+    model_path = os.path.join(model_dir, f"{symbol}_combined_rf.pkl")
 
     train_data = data.iloc[:-TEST_SIZE]
-    test_data = data.iloc[-TEST_SIZE:]
+    test_data  = data.iloc[-TEST_SIZE:]
 
     X_train = train_data[EXTENDED_FEATURES].values
     y_train = train_data['Direction'].values
-    X_test = test_data[EXTENDED_FEATURES].values
-    y_test = test_data['Direction'].values
+    X_test  = test_data[EXTENDED_FEATURES].values
+    y_test  = test_data['Direction'].values
     close_prices_test = test_data['Close'].values
 
+    # RF is scale-invariant but we keep StandardScaler so the RL stage
+    # (which scales its own features from the same scaler) stays consistent.
     scaler = StandardScaler()
     X_train_s = scaler.fit_transform(X_train)
-    X_test_s = scaler.transform(X_test)
+    X_test_s  = scaler.transform(X_test)
 
     best_cv_f1 = 0.0
 
@@ -468,46 +480,39 @@ def run_sgd_stage(data, symbol, model_dir):
         try:
             with open(model_path, 'rb') as f:
                 candidate = pickle.load(f)
-            candidate.decision_function(X_train_s[:1])  # dimension check
+            candidate.predict_proba(X_train_s[:1])   # dimension + type check
             model = candidate
-            print(f"  [SGD] Loaded existing model for {symbol}.")
+            print(f"  [RF] Loaded existing model for {symbol}.")
         except Exception:
-            print(f"  [SGD] Feature set changed — retraining for {symbol}.")
+            print(f"  [RF] Retraining for {symbol}.")
 
     if model is None:
-        param_grid = {
-            'loss': ['hinge', 'log_loss'],
-            'penalty': ['l1', 'l2'],
-            'alpha': [0.0001, 0.001, 0.01],
-            'learning_rate': ['invscaling', 'adaptive'],
-            'eta0': [0.001, 0.01, 0.1],
+        param_dist = {
+            'n_estimators':    [100, 200, 300],
+            'max_depth':       [3, 4, 5, None],
+            'max_features':    ['sqrt', 'log2'],
+            'min_samples_leaf':[1, 2, 5],
+            'class_weight':    ['balanced', None],
         }
         tscv = TimeSeriesSplit(n_splits=5)
         gs = RandomizedSearchCV(
-            SGDClassifier(random_state=42), param_grid,
-            n_iter=20, cv=tscv, scoring='f1',
+            RandomForestClassifier(random_state=42),
+            param_dist, n_iter=20, cv=tscv, scoring='f1',
             random_state=42, n_jobs=1,
         )
         gs.fit(X_train_s, y_train)
         best_cv_f1 = gs.best_score_
         model = gs.best_estimator_
-        print(f"  [SGD] Best CV F1: {best_cv_f1:.4f}")
-
-    classes = np.unique(y_train)
-    batch_size = 20
-    for i in range(0, len(X_train_s), batch_size):
-        model.partial_fit(X_train_s[i:i+batch_size], y_train[i:i+batch_size], classes=classes)
+        # Refit best estimator on full training data (CV held some out)
+        model.fit(X_train_s, y_train)
+        print(f"  [RF] Best CV F1: {best_cv_f1:.4f}")
 
     with open(model_path, 'wb') as f:
         pickle.dump(model, f)
 
-    predictions = model.predict(X_test_s)
-
-    try:
-        raw_conf = model.decision_function(X_test_s)
-        sgd_conf = 1 / (1 + np.exp(-raw_conf))
-    except Exception:
-        sgd_conf = predictions.astype(float)
+    rf_proba    = model.predict_proba(X_test_s)[:, 1]
+    predictions = (rf_proba >= RF_CONFIDENCE).astype(int)
+    sgd_conf    = rf_proba   # kept as "sgd_conf" so callers don't change
 
     accuracy  = accuracy_score(y_test, predictions)
     precision = precision_score(y_test, predictions, zero_division=0)
@@ -521,7 +526,7 @@ def run_sgd_stage(data, symbol, model_dir):
     last_10_accuracy = accuracy_score(y_test[-10:], predictions[-10:])
 
     print(
-        f"  [SGD] Acc: {accuracy:.2f} | P: {precision:.2f} | R: {recall:.2f} | "
+        f"  [RF] Acc: {accuracy:.2f} | P: {precision:.2f} | R: {recall:.2f} | "
         f"F1: {f1:.2f} | AUC: {auc:.2f} | Sharpe: {sharpe:.2f}"
     )
 
