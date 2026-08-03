@@ -261,13 +261,38 @@
       letter-spacing: 0.3px;
     }
 
-    .performer-profit {
+    .alloc-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+
+    .alloc-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .alloc-value { font-family: var(--mono); font-weight: 600; }
+
+    .ret-badge {
+      font-size: 11px;
+      font-weight: 700;
+      margin-left: 4px;
+      opacity: 0.85;
+    }
+
+    .trade-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       margin-top: 12px;
       padding-top: 12px;
       border-top: 1px solid var(--border);
-      font-size: 13px;
-      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      flex-wrap: wrap;
     }
+
+    .trade-stat strong { color: var(--text); }
+    .trade-dot { color: var(--border); }
 
     @media (max-width: 640px) {
       .top-performers { grid-template-columns: 1fr; gap: 10px; margin-bottom: 24px; }
@@ -603,32 +628,63 @@
       const rankLabel = ['1st', '2nd', '3rd'];
       document.getElementById('top-performers').innerHTML = ranked.map((r, i) => {
         const isUp = r.gru_signal === 'UP';
-        const profitFmt = (r.backtest_profit >= 0 ? '+$' : '-$') +
+        const profitSign = r.backtest_profit >= 0 ? '+' : '';
+        const retSign    = (r.return_pct ?? 0) >= 0 ? '+' : '';
+        const allocation = r.starting_allocation
+          ? '$' + r.starting_allocation.toLocaleString('en-US', {maximumFractionDigits: 0})
+          : '—';
+        const profitFmt = profitSign + '$' +
           Math.abs(r.backtest_profit).toLocaleString('en-US', {maximumFractionDigits: 0});
+        const retFmt = r.return_pct != null ? retSign + r.return_pct.toFixed(1) + '%' : '—';
+        const qty     = r.quantity    != null ? r.quantity    : '—';
+        const nBuys   = r.n_buys     != null ? r.n_buys      : '—';
+        const nHolds  = r.n_holds    != null ? r.n_holds     : '—';
+        const nSells  = r.n_sells    != null ? r.n_sells     : '—';
+        const avgHold = r.avg_hold_weeks != null ? r.avg_hold_weeks + ' wk' : '—';
+
         return `
         <div class="performer-card rank-${i + 1}">
           <div class="performer-rank">${rankLabel[i]}</div>
           <div class="performer-symbol">${r.symbol}</div>
           <div class="performer-score">Composite score: <strong>${fmt(r.score)}%</strong></div>
           <div class="performer-signal ${isUp ? 'up' : 'down'}">
-            ${isUp ? '▲ BULLISH' : '▼ BEARISH'}
+            ${isUp ? '▲ BULLISH' : '▼ BEARISH'} this week
           </div>
+
+          <div class="alloc-row">
+            <span class="alloc-label">Allocation</span>
+            <span class="alloc-value">${allocation} · ${qty} shares</span>
+          </div>
+          <div class="alloc-row">
+            <span class="alloc-label">Backtest P&L</span>
+            <span class="alloc-value ${r.backtest_profit >= 0 ? 'profit-pos' : 'profit-neg'}">
+              ${profitFmt} <span class="ret-badge ${r.backtest_profit >= 0 ? 'profit-pos' : 'profit-neg'}">${retFmt}</span>
+            </span>
+          </div>
+
           <div class="performer-stats">
             <div class="pstat">
               <div class="pstat-val">${fmt(r.gru_accuracy)}%</div>
-              <div class="pstat-lbl">GRU</div>
+              <div class="pstat-lbl">GRU acc</div>
             </div>
             <div class="pstat">
               <div class="pstat-val">${fmt(r.sgd_accuracy)}%</div>
-              <div class="pstat-lbl">SGD</div>
+              <div class="pstat-lbl">SGD acc</div>
             </div>
             <div class="pstat">
               <div class="pstat-val">${fmt(r.rl_win_rate)}%</div>
-              <div class="pstat-lbl">RL</div>
+              <div class="pstat-lbl">RL win</div>
             </div>
           </div>
-          <div class="performer-profit ${r.backtest_profit >= 0 ? 'profit-pos' : 'profit-neg'}">
-            Backtest: ${profitFmt}
+
+          <div class="trade-row">
+            <span class="trade-stat"><strong>${nBuys}</strong> buys</span>
+            <span class="trade-dot">·</span>
+            <span class="trade-stat"><strong>${nHolds}</strong> holds</span>
+            <span class="trade-dot">·</span>
+            <span class="trade-stat"><strong>${nSells}</strong> sells</span>
+            <span class="trade-dot">·</span>
+            <span class="trade-stat">avg <strong>${avgHold}</strong></span>
           </div>
         </div>`;
       }).join('');

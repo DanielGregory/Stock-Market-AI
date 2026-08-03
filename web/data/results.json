@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-08-03T00:00:00Z",
+  "last_updated": "2026-08-03T06:00:00Z",
   "run_config": {
     "symbols": ["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"],
     "epochs": 10,
@@ -14,7 +14,14 @@
       "sgd_accuracy": 56.0,
       "sgd_accuracy_10": 60.0,
       "rl_win_rate": 58.0,
-      "backtest_profit": 1243.0
+      "backtest_profit": 1243.0,
+      "return_pct": 24.9,
+      "starting_allocation": 5000.0,
+      "quantity": 27,
+      "n_buys": 4,
+      "n_holds": 7,
+      "n_sells": 4,
+      "avg_hold_weeks": 2.8
     },
     {
       "symbol": "MSFT",
@@ -24,7 +31,14 @@
       "sgd_accuracy": 55.0,
       "sgd_accuracy_10": 50.0,
       "rl_win_rate": 56.0,
-      "backtest_profit": 987.0
+      "backtest_profit": 987.0,
+      "return_pct": 19.7,
+      "starting_allocation": 5000.0,
+      "quantity": 12,
+      "n_buys": 3,
+      "n_holds": 5,
+      "n_sells": 3,
+      "avg_hold_weeks": 2.3
     },
     {
       "symbol": "GOOGL",
@@ -34,7 +48,14 @@
       "sgd_accuracy": 59.0,
       "sgd_accuracy_10": 70.0,
       "rl_win_rate": 62.0,
-      "backtest_profit": 1876.0
+      "backtest_profit": 1876.0,
+      "return_pct": 37.5,
+      "starting_allocation": 5000.0,
+      "quantity": 11,
+      "n_buys": 5,
+      "n_holds": 9,
+      "n_sells": 5,
+      "avg_hold_weeks": 3.2
     },
     {
       "symbol": "TSLA",
@@ -44,7 +65,14 @@
       "sgd_accuracy": 53.0,
       "sgd_accuracy_10": 40.0,
       "rl_win_rate": 54.0,
-      "backtest_profit": -423.0
+      "backtest_profit": -423.0,
+      "return_pct": -8.5,
+      "starting_allocation": 5000.0,
+      "quantity": 18,
+      "n_buys": 6,
+      "n_holds": 4,
+      "n_sells": 6,
+      "avg_hold_weeks": 1.5
     },
     {
       "symbol": "NVDA",
@@ -54,7 +82,14 @@
       "sgd_accuracy": 61.0,
       "sgd_accuracy_10": 80.0,
       "rl_win_rate": 64.0,
-      "backtest_profit": 3102.0
+      "backtest_profit": 3102.0,
+      "return_pct": 62.0,
+      "starting_allocation": 5000.0,
+      "quantity": 5,
+      "n_buys": 4,
+      "n_holds": 11,
+      "n_sells": 4,
+      "avg_hold_weeks": 4.0
     }
   ]
 }

@@ -124,13 +124,13 @@ for symbol in args.symbols:
 
         stable_baselines3.PPO.learn = _orig_learn  # restore
 
-        # ── Backtest profit ────────────────────────────────────────────────
+        # ── Backtest trade stats ───────────────────────────────────────────
         current_price = sgd_result["close_prices_test"][-1]
         quantity = max(1, int((pipeline.PORTFOLIO_SIZE * pipeline.ALLOCATION_PERCENT / 100) // current_price))
-        profit = pipeline.calculate_profit(
+        stats = pipeline.calculate_trade_stats(
             sgd_result["predictions"],
             sgd_result["close_prices_test"],
-            quantity
+            quantity,
         )
 
         sgd_acc = sgd_result["accuracy"]
@@ -139,16 +139,27 @@ for symbol in args.symbols:
 
         elapsed = time.time() - t0
         print(f"\n  Done in {elapsed:.0f}s")
+        print(f"  Allocation: ${stats['starting_allocation']:,.0f} | "
+              f"Profit: ${stats['profit']:+,.0f} | Return: {stats['return_pct']:+.1f}%")
+        print(f"  Trades: {stats['n_buys']} buys, {stats['n_holds']} holds, "
+              f"{stats['n_sells']} sells | Avg hold: {stats['avg_hold_weeks']}wk")
 
         row = {
-            "Symbol":        symbol,
-            "GRU Acc %":     round(gru_acc * 100, 1),
-            "GRU Signal":    "UP  " if gru_next_prob >= 0.5 else "DOWN",
-            "GRU Prob":      round(gru_next_prob, 3),
-            "SGD Acc %":     round(sgd_acc * 100, 1),
-            "SGD Acc-10 %":  round(sgd_result["last_10_accuracy"] * 100, 1),
-            "RL Win Rate %": round(rl_result["win_rate"] * 100, 1),
-            "Backtest $":    round(profit, 0),
+            "Symbol":           symbol,
+            "GRU Acc %":        round(gru_acc * 100, 1),
+            "GRU Signal":       "UP  " if gru_next_prob >= 0.5 else "DOWN",
+            "GRU Prob":         round(gru_next_prob, 3),
+            "SGD Acc %":        round(sgd_acc * 100, 1),
+            "SGD Acc-10 %":     round(sgd_result["last_10_accuracy"] * 100, 1),
+            "RL Win Rate %":    round(rl_result["win_rate"] * 100, 1),
+            "Backtest $":       round(stats["profit"], 0),
+            "Return %":         stats["return_pct"],
+            "Allocation $":     stats["starting_allocation"],
+            "Qty":              stats["quantity"],
+            "Buys":             stats["n_buys"],
+            "Holds":            stats["n_holds"],
+            "Sells":            stats["n_sells"],
+            "Avg Hold (wk)":    stats["avg_hold_weeks"],
         }
         all_results.append(row)
 
@@ -185,14 +196,21 @@ if all_results:
         json_records = []
         for r in all_results:
             json_records.append({
-                "symbol":          r["Symbol"],
-                "gru_accuracy":    r["GRU Acc %"],
-                "gru_signal":      r["GRU Signal"].strip(),
-                "gru_prob":        r["GRU Prob"],
-                "sgd_accuracy":    r["SGD Acc %"],
-                "sgd_accuracy_10": r["SGD Acc-10 %"],
-                "rl_win_rate":     r["RL Win Rate %"],
-                "backtest_profit": r["Backtest $"],
+                "symbol":             r["Symbol"],
+                "gru_accuracy":       r["GRU Acc %"],
+                "gru_signal":         r["GRU Signal"].strip(),
+                "gru_prob":           r["GRU Prob"],
+                "sgd_accuracy":       r["SGD Acc %"],
+                "sgd_accuracy_10":    r["SGD Acc-10 %"],
+                "rl_win_rate":        r["RL Win Rate %"],
+                "backtest_profit":    r["Backtest $"],
+                "return_pct":         r["Return %"],
+                "starting_allocation": r["Allocation $"],
+                "quantity":           r["Qty"],
+                "n_buys":             r["Buys"],
+                "n_holds":            r["Holds"],
+                "n_sells":            r["Sells"],
+                "avg_hold_weeks":     r["Avg Hold (wk)"],
             })
         payload = {
             "last_updated": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),

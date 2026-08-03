@@ -604,35 +604,67 @@ def calculate_sharpe(predictions, close_prices, risk_free_rate=0.0):
     return float((r.mean() - risk_free_rate / 52) / std * np.sqrt(52))
 
 
-def calculate_profit(predictions, close_prices, quantity):
+def calculate_trade_stats(predictions, close_prices, quantity,
+                          portfolio_size=None, allocation_pct=None):
     """
-    Swing-trade backtest: buy on first UP prediction, hold through
-    consecutive UP weeks, sell only when prediction flips to DOWN.
-    Steps weekly (every HOLD_PERIOD days).
+    Runs the hold-through-up backtest and returns full trade statistics:
+    profit, return %, starting allocation, buy/hold/sell counts, avg hold.
     """
+    if portfolio_size is None:
+        portfolio_size = PORTFOLIO_SIZE
+    if allocation_pct is None:
+        allocation_pct = ALLOCATION_PERCENT
+
+    allocation = portfolio_size * allocation_pct / 100
     profit = 0.0
     position = 0
     entry_price = 0.0
+    entry_step = 0
+    n_buys = n_holds = n_sells = 0
+    hold_weeks_list = []
 
     i = 0
     while i < len(close_prices):
         price = close_prices[i]
         pred = predictions[i]
-
-        if pred == 1 and position == 0:
-            position = 1
-            entry_price = price
-        elif pred == 0 and position == 1:
-            profit += (price - entry_price) * quantity
-            position = 0
-            entry_price = 0.0
-
+        if pred == 1:
+            if position == 0:
+                position = 1
+                entry_price = price
+                entry_step = i
+                n_buys += 1
+            else:
+                n_holds += 1
+        else:
+            if position == 1:
+                profit += (price - entry_price) * quantity
+                hold_weeks_list.append(max(1, (i - entry_step) // HOLD_PERIOD))
+                position = 0
+                n_sells += 1
         i += HOLD_PERIOD
 
     if position == 1:
         profit += (close_prices[-1] - entry_price) * quantity
+        hold_weeks_list.append(max(1, (len(close_prices) - 1 - entry_step) // HOLD_PERIOD))
+        n_sells += 1
 
-    return profit
+    avg_hold = sum(hold_weeks_list) / len(hold_weeks_list) if hold_weeks_list else 0
+    return_pct = profit / allocation * 100 if allocation > 0 else 0
+
+    return {
+        "profit":             round(profit, 2),
+        "starting_allocation": round(allocation, 2),
+        "return_pct":         round(return_pct, 1),
+        "quantity":           quantity,
+        "n_buys":             n_buys,
+        "n_holds":            n_holds,
+        "n_sells":            n_sells,
+        "avg_hold_weeks":     round(avg_hold, 1),
+    }
+
+
+def calculate_profit(predictions, close_prices, quantity):
+    return calculate_trade_stats(predictions, close_prices, quantity)["profit"]
 
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
