@@ -1,0 +1,9 @@
+*.py
+requirements.txt
+Demo_Models/
+Models_*/
+__pycache__/
+*.pt
+*.pkl
+*.zip
+*.xlsx
