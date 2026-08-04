@@ -463,33 +463,34 @@
     }
 
     /* ── Signal chart ────────────────────────────────────── */
-    .stock-tabs {
+    .signal-select-row {
       display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
       margin-bottom: 14px;
     }
 
-    .stock-tab {
-      background: var(--bg);
+    #signal-symbol-select {
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--muted);
-      cursor: pointer;
+      border-radius: 8px;
+      color: var(--text);
       font-family: var(--mono);
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
-      padding: 5px 12px;
-      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      padding: 7px 32px 7px 12px;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      transition: border-color 0.2s;
     }
 
-    .stock-tab:hover { border-color: var(--accent); color: var(--accent); }
-
-    .stock-tab.active {
-      background: rgba(99,102,241,0.15);
-      border-color: var(--accent);
-      color: var(--accent);
-    }
+    #signal-symbol-select:focus { border-color: var(--accent); }
+    #signal-symbol-select option { background: var(--surface); color: var(--text); }
 
     .signal-legend {
       display: flex;
@@ -852,7 +853,9 @@
     <!-- Price & Signal Chart -->
     <p class="section-title">Price &amp; Trading Signals</p>
     <div class="chart-card" style="margin-bottom:32px">
-      <div id="signal-tabs" class="stock-tabs"></div>
+      <div class="signal-select-row">
+        <select id="signal-symbol-select" onchange="showSignalChart(this.value)"></select>
+      </div>
       <div class="signal-legend">
         <span class="sig-item"><span class="sig-tri-up"></span> BUY — entered long</span>
         <span class="sig-item"><span class="sig-dot" style="background:var(--accent)"></span> HOLD — staying long</span>
@@ -1430,9 +1433,8 @@
       const hasChart = results.filter(r => r.chart_data);
       if (!hasChart.length) return;
 
-      document.getElementById('signal-tabs').innerHTML = hasChart.map(r => `
-        <button class="stock-tab" onclick="showSignalChart('${r.symbol}')">${r.symbol}</button>
-      `).join('');
+      const sel = document.getElementById('signal-symbol-select');
+      sel.innerHTML = hasChart.map(r => `<option value="${r.symbol}">${r.symbol}</option>`).join('');
 
       // Auto-select top performer
       const top = [...results]
@@ -1441,17 +1443,17 @@
           (b.gru_accuracy + b.sgd_accuracy + b.rl_win_rate) -
           (a.gru_accuracy + a.sgd_accuracy + a.rl_win_rate)
         )[0];
-      if (top) showSignalChart(top.symbol);
+      if (top) {
+        sel.value = top.symbol;
+        showSignalChart(top.symbol);
+      }
     }
 
     function showSignalChart(symbol) {
       const r = _allResults.find(x => x.symbol === symbol);
       if (!r || !r.chart_data) return;
 
-      // Update tab active state
-      document.querySelectorAll('.stock-tab').forEach(t => {
-        t.classList.toggle('active', t.textContent === symbol);
-      });
+      document.getElementById('signal-symbol-select').value = symbol;
 
       const { dates, prices, signals } = r.chart_data;
       const labels = dates;
