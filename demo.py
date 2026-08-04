@@ -145,6 +145,14 @@ for symbol in args.symbols:
 
         stable_baselines3.PPO.learn = _orig_learn  # restore
 
+        # ── Extract last-row indicators for portfolio scoring ─────────────────
+        try:
+            _last = sgd_result["test_data"].iloc[-1]
+            row_atr = float(_last.get('ATR_14', 0) or 0)
+            row_adx = float(_last.get('ADX_14', 25) or 25)
+        except Exception:
+            row_atr, row_adx = 0.0, 25.0
+
         # ── Backtest trade stats ───────────────────────────────────────────
         current_price = sgd_result["close_prices_test"][-1]
         quantity = max(1, int((pipeline.PORTFOLIO_SIZE * pipeline.ALLOCATION_PERCENT / 100) // current_price))
@@ -213,12 +221,86 @@ for symbol in args.symbols:
             "Avg Hold (wk)":    stats["avg_hold_weeks"],
             "chart_data":       chart_data,
             "current_price":    round(float(current_price), 2),
+            "ATR_14":           row_atr,
+            "ADX_14":           row_adx,
         }
         all_results.append(row)
 
     except Exception as e:
         print(f"\n  Error processing {symbol}: {e}")
         failed.append(symbol)
+
+# ── Portfolio allocation ──────────────────────────────────────────────────────
+
+def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0):
+    """Score UP-signal stocks by confidence × expected_move, cap each at cap_pct%."""
+    candidates = []
+    for r in results:
+        if r["GRU Signal"].strip() != "UP":
+            continue
+        gru_prob = float(r["GRU Prob"])
+        sgd_acc  = float(r["SGD Acc %"]) / 100.0
+        atr      = float(r.get("ATR_14") or 0)
+        adx      = float(r.get("ADX_14") or 25)
+        price    = float(r["current_price"])
+
+        gru_decisive = abs(gru_prob - 0.5) * 2
+        sgd_quality  = max(0.0, (sgd_acc - 0.5) * 2)
+        adx_factor   = min(adx / 50.0, 1.0)
+
+        confidence        = 0.5 * gru_decisive + 0.3 * sgd_quality + 0.2 * adx_factor
+        expected_move_pct = (atr / price * 100) if price > 0 else 0
+        raw_score         = confidence * max(expected_move_pct, 0.5)
+
+        candidates.append({
+            "symbol":            r["Symbol"],
+            "signal":            "UP",
+            "gru_prob":          round(gru_prob, 3),
+            "confidence":        round(confidence, 3),
+            "expected_move_pct": round(expected_move_pct, 2),
+            "raw_score":         raw_score,
+        })
+
+    if not candidates:
+        return {"positions": [], "cash_pct": 100.0, "n_positions": 0}
+
+    total_score = sum(c["raw_score"] for c in candidates)
+    allocs = {c["symbol"]: (c["raw_score"] / total_score * 100) if total_score > 0
+              else (100.0 / len(candidates)) for c in candidates}
+
+    for _ in range(20):
+        capped = {k: v for k, v in allocs.items() if v > cap_pct}
+        if not capped:
+            break
+        excess = sum(v - cap_pct for v in capped.values())
+        for k in capped:
+            allocs[k] = cap_pct
+        uncapped = {k: v for k, v in allocs.items() if v < cap_pct}
+        if not uncapped:
+            break
+        unc_total = sum(uncapped.values())
+        if unc_total == 0:
+            break
+        for k in uncapped:
+            allocs[k] += (allocs[k] / unc_total) * excess
+
+    invested_pct = sum(allocs.values())
+    positions = sorted(
+        [{
+            **{k: v for k, v in c.items() if k != "raw_score"},
+            "allocation_pct": round(allocs.get(c["symbol"], 0), 1),
+            "allocation_usd": int(round(portfolio_usd * allocs.get(c["symbol"], 0) / 100)),
+        } for c in candidates],
+        key=lambda x: x["allocation_pct"], reverse=True,
+    )
+    return {
+        "positions":   positions,
+        "cash_pct":    round(max(0.0, 100.0 - invested_pct), 1),
+        "n_positions": len(positions),
+    }
+
+
+portfolio_data = _compute_portfolio(all_results)
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
@@ -404,6 +486,7 @@ if all_results:
             },
             "spy_return_pct":      spy_return_pct,
             "prediction_summary":  prediction_summary,
+            "portfolio":           portfolio_data,
             "results": json_records,
         })
         with open(json_path, "w") as f:

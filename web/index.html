@@ -772,6 +772,125 @@
       font-size: 13px;
       color: #fca5a5;
     }
+
+    /* ── Tab navigation ─────────────────────────────────────────── */
+    .tab-nav {
+      display: flex;
+      gap: 2px;
+      margin-bottom: 32px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 10px 22px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      margin-bottom: -1px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+    .tab-btn:hover:not(.active) { color: var(--text); }
+
+    /* ── Portfolio tab ──────────────────────────────────────────── */
+    .pf-cards {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+    .pf-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 22px;
+      min-width: 140px;
+    }
+    .pf-card-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .pf-card-value {
+      font-size: 22px;
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+    .pf-list {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 20px;
+      margin-bottom: 16px;
+    }
+    .pf-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(42,45,62,0.6);
+    }
+    .pf-row:last-child { border-bottom: none; }
+    .pf-sym {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 700;
+      width: 56px;
+      flex-shrink: 0;
+    }
+    .pf-sig {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 3px 7px;
+      border-radius: 4px;
+      width: 38px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .pf-sig.up   { background: rgba(34,197,94,0.12); color: var(--green); }
+    .pf-sig.cash { background: rgba(100,116,139,0.1); color: var(--muted); }
+    .pf-bar-wrap { flex: 1; min-width: 0; }
+    .pf-bar-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .pf-bar-bg {
+      height: 7px;
+      background: rgba(42,45,62,0.8);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .pf-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: var(--accent);
+      transition: width 0.5s cubic-bezier(.4,0,.2,1);
+    }
+    .pf-bar-fill.cash { background: var(--border); }
+    .pf-alloc-pct {
+      font-family: var(--mono);
+      font-size: 16px;
+      font-weight: 700;
+      width: 52px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .pf-alloc-usd {
+      font-size: 13px;
+      color: var(--muted);
+      width: 80px;
+      text-align: right;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -785,6 +904,14 @@
 
   <main>
     <div id="error-banner"></div>
+
+    <!-- Tab navigation -->
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+      <button class="tab-btn" data-tab="portfolio" onclick="switchTab('portfolio')">Portfolio</button>
+    </div>
+
+    <div id="tab-dashboard">
 
     <!-- Pipeline diagram -->
     <div class="pipeline">
@@ -1079,6 +1206,34 @@
         </div>
       </div><!-- end docs-grid -->
     </div><!-- end docs-body -->
+
+    </div><!-- end tab-dashboard -->
+
+    <!-- Portfolio tab -->
+    <div id="tab-portfolio" style="display:none">
+      <p class="section-title">Portfolio Builder</p>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:24px">
+        Model selects stocks based on signal confidence and expected price movement.
+        Only <strong style="color:var(--green)">UP</strong> signals receive capital — everything else is cash.
+        25% cap per position.
+      </p>
+
+      <div class="pf-cards" id="pf-summary-cards"></div>
+
+      <p class="section-title" style="margin-top:8px">Allocation</p>
+      <div class="pf-list" id="pf-positions">
+        <div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">
+          Loading portfolio…
+        </div>
+      </div>
+
+      <p style="font-size:11px;color:var(--muted);line-height:1.8">
+        <strong>Confidence</strong> = 50% GRU signal strength + 30% SGD accuracy quality + 20% ADX trend strength.<br>
+        <strong>Expected Move</strong> = ATR-14 as % of current price — proxy for the stock's typical weekly range.<br>
+        <strong>Allocation</strong> = proportional to Confidence × Expected Move, capped at 25% per position. Remainder is held in cash.
+      </p>
+    </div><!-- end tab-portfolio -->
+
   </main>
 
   <footer>
@@ -1302,6 +1457,9 @@
       } else {
         liveEmpty.style.display = 'block';
       }
+
+      // Portfolio tab
+      renderPortfolio(data.portfolio);
 
       // Table
       const tbody = document.getElementById('results-body');
@@ -1605,6 +1763,87 @@
       const btn  = document.getElementById('docs-btn');
       const open = body.classList.toggle('open');
       btn.textContent = open ? 'Hide' : 'Show';
+    }
+
+    // ── Tab switching ──────────────────────────────────────────────────────────
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.tab === tab)
+      );
+      document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
+      document.getElementById('tab-portfolio').style.display = tab === 'portfolio' ? '' : 'none';
+    }
+
+    // ── Portfolio rendering ────────────────────────────────────────────────────
+    function renderPortfolio(portfolio) {
+      if (!portfolio) return;
+      const positions = portfolio.positions || [];
+      const cashPct   = portfolio.cash_pct  ?? 0;
+      const totalUSD  = 100_000;
+
+      // Summary cards
+      const invested    = positions.reduce((s, p) => s + p.allocation_pct, 0);
+      const avgConf     = positions.length
+        ? positions.reduce((s, p) => s + p.confidence, 0) / positions.length
+        : 0;
+      const avgMove     = positions.length
+        ? positions.reduce((s, p) => s + p.expected_move_pct, 0) / positions.length
+        : 0;
+      const cashUSD     = Math.round(totalUSD * cashPct / 100);
+
+      document.getElementById('pf-summary-cards').innerHTML = [
+        { label: 'Positions',      value: positions.length },
+        { label: 'Invested',       value: invested.toFixed(1) + '%' },
+        { label: 'Cash',           value: '$' + cashUSD.toLocaleString() },
+        { label: 'Avg Confidence', value: (avgConf * 100).toFixed(0) + '%' },
+        { label: 'Avg Exp. Move',  value: '~' + avgMove.toFixed(1) + '%' },
+      ].map(c => `
+        <div class="pf-card">
+          <div class="pf-card-label">${c.label}</div>
+          <div class="pf-card-value">${c.value}</div>
+        </div>
+      `).join('');
+
+      // Position rows — bar width scaled so 25% cap = 100% of bar
+      const posRows = positions.map(p => {
+        const barW   = Math.min((p.allocation_pct / 25) * 100, 100);
+        const confPct = Math.round(p.confidence * 100);
+        return `
+        <div class="pf-row">
+          <div class="pf-sym">${p.symbol}</div>
+          <div class="pf-sig up">▲ UP</div>
+          <div class="pf-bar-wrap">
+            <div class="pf-bar-labels">
+              <span>Conf <strong>${confPct}%</strong> · Expected move <strong>~${p.expected_move_pct.toFixed(1)}%/wk</strong></span>
+            </div>
+            <div class="pf-bar-bg">
+              <div class="pf-bar-fill" style="width:${barW}%"></div>
+            </div>
+          </div>
+          <div class="pf-alloc-pct">${p.allocation_pct.toFixed(1)}%</div>
+          <div class="pf-alloc-usd">$${p.allocation_usd.toLocaleString()}</div>
+        </div>`;
+      }).join('');
+
+      // Cash row
+      const cashRow = cashPct > 0 ? `
+        <div class="pf-row">
+          <div class="pf-sym" style="color:var(--muted)">CASH</div>
+          <div class="pf-sig cash">—</div>
+          <div class="pf-bar-wrap">
+            <div class="pf-bar-labels">
+              <span style="color:var(--muted)">No position — signals not bullish on remaining stocks</span>
+            </div>
+            <div class="pf-bar-bg">
+              <div class="pf-bar-fill cash" style="width:${cashPct}%"></div>
+            </div>
+          </div>
+          <div class="pf-alloc-pct" style="color:var(--muted)">${cashPct.toFixed(1)}%</div>
+          <div class="pf-alloc-usd" style="color:var(--muted)">$${cashUSD.toLocaleString()}</div>
+        </div>` : '';
+
+      document.getElementById('pf-positions').innerHTML = posRows + cashRow ||
+        '<div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">No UP signals this run — 100% cash.</div>';
     }
   </script>
 </body>
