@@ -263,12 +263,34 @@ if all_results:
         print(f"  SPY fetch failed: {e}")
 
     # ── Write JSON for Vercel dashboard ───────────────────────────────────────
+    import math
+
+    def _safe(v):
+        """Recursively convert numpy types and replace NaN/Inf with None."""
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            return {k: _safe(val) for k, val in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [_safe(x) for x in v]
+        try:
+            import numpy as np
+            if isinstance(v, (np.integer,)):
+                return int(v)
+            if isinstance(v, (np.floating,)):
+                v = float(v)
+        except ImportError:
+            pass
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return None
+        return v
+
     json_path = os.path.join("web", "data", "results.json")
     try:
         os.makedirs(os.path.dirname(json_path), exist_ok=True)
         json_records = []
         for r in all_results:
-            json_records.append({
+            json_records.append(_safe({
                 "symbol":             r["Symbol"],
                 "gru_accuracy":       r["GRU Acc %"],
                 "gru_signal":         r["GRU Signal"].strip(),
@@ -287,8 +309,8 @@ if all_results:
                 "hold_return_pct":    r["Hold Return %"],
                 "alpha_pct":          r["Alpha %"],
                 "chart_data":         r.get("chart_data"),
-            })
-        payload = {
+            }))
+        payload = _safe({
             "last_updated": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "run_config": {
                 "symbols": args.symbols,
@@ -297,7 +319,7 @@ if all_results:
             },
             "spy_return_pct": spy_return_pct,
             "results": json_records,
-        }
+        })
         with open(json_path, "w") as f:
             json.dump(payload, f, indent=2)
         print(f"  Dashboard data saved to {json_path}")
