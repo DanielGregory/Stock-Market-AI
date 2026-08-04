@@ -217,6 +217,7 @@ for symbol in args.symbols:
             "Sells":            stats["n_sells"],
             "Avg Hold (wk)":    stats["avg_hold_weeks"],
             "chart_data":       chart_data,
+            "current_price":    round(float(current_price), 2),
         }
         all_results.append(row)
 
@@ -262,8 +263,97 @@ if all_results:
     except Exception as e:
         print(f"  SPY fetch failed: {e}")
 
-    # ── Write JSON for Vercel dashboard ───────────────────────────────────────
+    # ── Forward prediction tracking ───────────────────────────────────────────
     import math
+    from collections import defaultdict
+    from pandas.tseries.offsets import BDay
+
+    pred_log_path = os.path.join("web", "data", "predictions_log.json")
+    today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    today_ts  = pd.Timestamp(datetime.datetime.utcnow()).normalize()
+
+    pred_log = {"predictions": []}
+    if os.path.exists(pred_log_path):
+        try:
+            with open(pred_log_path) as pf:
+                pred_log = json.load(pf)
+        except Exception:
+            pred_log = {"predictions": []}
+
+    # Resolve pending predictions that are 5+ business days old
+    for rec in pred_log.get("predictions", []):
+        if rec.get("correct") is not None or rec.get("price_at_prediction") is None:
+            continue
+        try:
+            outcome_ts = pd.Timestamp(rec["run_date"]) + 5 * BDay()
+            if today_ts < outcome_ts:
+                continue
+            hist = yf.Ticker(rec["symbol"]).history(
+                start=outcome_ts.strftime("%Y-%m-%d"),
+                end=(outcome_ts + 3 * BDay()).strftime("%Y-%m-%d"),
+            )
+            if hist.empty:
+                continue
+            outcome_price = float(hist["Close"].iloc[0])
+            actual_up     = outcome_price > rec["price_at_prediction"]
+            predicted_up  = rec["gru_signal"] == "UP"
+            rec["outcome_date"]  = outcome_ts.strftime("%Y-%m-%d")
+            rec["outcome_price"] = round(outcome_price, 2)
+            rec["correct"]       = (actual_up == predicted_up)
+        except Exception as ex:
+            print(f"  Warning: outcome lookup failed for {rec.get('symbol','?')}: {ex}")
+
+    # Drop records older than 180 days
+    cutoff = (today_ts - pd.Timedelta(days=180)).strftime("%Y-%m-%d")
+    pred_log["predictions"] = [
+        r for r in pred_log.get("predictions", [])
+        if r.get("run_date", "") >= cutoff
+    ]
+
+    # Append today's predictions (skip symbols already logged today)
+    logged_today = {r["symbol"] for r in pred_log["predictions"] if r.get("run_date") == today_str}
+    for r in all_results:
+        if r["Symbol"] in logged_today:
+            continue
+        pred_log["predictions"].append({
+            "run_date":            today_str,
+            "symbol":              r["Symbol"],
+            "gru_signal":          r["GRU Signal"].strip(),
+            "gru_prob":            r["GRU Prob"],
+            "price_at_prediction": r["current_price"],
+            "outcome_date":        None,
+            "outcome_price":       None,
+            "correct":             None,
+        })
+
+    pred_log["last_updated"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        os.makedirs(os.path.dirname(pred_log_path), exist_ok=True)
+        with open(pred_log_path, "w") as pf:
+            json.dump(pred_log, pf, indent=2)
+        print(f"  Prediction log updated ({len(pred_log['predictions'])} entries) → {pred_log_path}")
+    except Exception as ex:
+        print(f"  Could not save prediction log: {ex}")
+
+    # Per-symbol live accuracy summary (resolved predictions only)
+    sym_stats = defaultdict(lambda: {"correct": 0, "total": 0})
+    for rec in pred_log.get("predictions", []):
+        if rec.get("correct") is None:
+            continue
+        sym_stats[rec["symbol"]]["total"] += 1
+        if rec["correct"]:
+            sym_stats[rec["symbol"]]["correct"] += 1
+
+    prediction_summary = {
+        sym: {
+            "live_accuracy":  round(v["correct"] / v["total"] * 100, 1),
+            "n_correct":      v["correct"],
+            "n_resolved":     v["total"],
+        }
+        for sym, v in sym_stats.items()
+    }
+
+    # ── Write JSON for Vercel dashboard ───────────────────────────────────────
 
     def _safe(v):
         """Recursively convert numpy types and replace NaN/Inf with None."""
@@ -317,7 +407,8 @@ if all_results:
                 "epochs":   args.epochs,
                 "rl_steps": DEMO_RL_STEPS,
             },
-            "spy_return_pct": spy_return_pct,
+            "spy_return_pct":      spy_return_pct,
+            "prediction_summary":  prediction_summary,
             "results": json_records,
         })
         with open(json_path, "w") as f:

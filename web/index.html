@@ -811,6 +811,31 @@
     <p class="section-title">Top Performers</p>
     <div class="top-performers" id="top-performers"></div>
 
+    <!-- Live Track Record -->
+    <p class="section-title">Live Track Record <span id="live-track-sub" style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:11px"></span></p>
+    <div id="live-track-wrap" style="display:none;margin-bottom:32px">
+      <div class="table-wrap">
+        <table id="live-track-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Live Accuracy</th>
+              <th>Predictions</th>
+              <th>Correct</th>
+              <th>vs Backtest</th>
+            </tr>
+          </thead>
+          <tbody id="live-track-body"></tbody>
+        </table>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:8px">
+        Each prediction is the GRU's next-week signal logged at run time. Outcome is resolved 5 trading days later against actual close price. Needs ~1 week of runs to populate.
+      </p>
+    </div>
+    <div id="live-track-empty" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;margin-bottom:32px;font-size:13px;color:var(--muted);text-align:center">
+      Live predictions are logged each daily run and resolved after 5 trading days — check back next week.
+    </div>
+
     <!-- Charts -->
     <p class="section-title">Model Accuracy</p>
     <div class="charts-row">
@@ -1235,6 +1260,45 @@
           </div>
         </div>`;
       }).join('');
+
+      // Live Track Record
+      const predSummary = data.prediction_summary || {};
+      const predSymbols = Object.keys(predSummary).filter(s => predSummary[s].n_resolved > 0);
+      const liveWrap  = document.getElementById('live-track-wrap');
+      const liveEmpty = document.getElementById('live-track-empty');
+      const liveSub   = document.getElementById('live-track-sub');
+
+      if (predSymbols.length > 0) {
+        liveWrap.style.display = 'block';
+        const totalResolved = predSymbols.reduce((s, sym) => s + predSummary[sym].n_resolved, 0);
+        const totalCorrect  = predSymbols.reduce((s, sym) => s + predSummary[sym].n_correct,  0);
+        const overallAcc    = totalResolved > 0 ? (totalCorrect / totalResolved * 100).toFixed(1) : '—';
+        liveSub.textContent = `${totalResolved} resolved prediction${totalResolved !== 1 ? 's' : ''} · overall ${overallAcc}% accurate`;
+
+        const resultMap = {};
+        results.forEach(r => { resultMap[r.symbol] = r; });
+
+        document.getElementById('live-track-body').innerHTML = predSymbols
+          .sort((a, b) => predSummary[b].live_accuracy - predSummary[a].live_accuracy)
+          .map(sym => {
+            const ps  = predSummary[sym];
+            const res = resultMap[sym];
+            const backtest = res ? res.sgd_accuracy : null;
+            const diff = (backtest != null) ? (ps.live_accuracy - backtest).toFixed(1) : null;
+            const diffCls = diff == null ? '' : (parseFloat(diff) >= 0 ? 'profit-pos' : 'profit-neg');
+            const diffStr = diff == null ? '—' : `${parseFloat(diff) >= 0 ? '+' : ''}${diff}%`;
+            const accCls  = ps.live_accuracy >= 55 ? 'profit-pos' : ps.live_accuracy < 45 ? 'profit-neg' : '';
+            return `<tr>
+              <td class="symbol">${sym}</td>
+              <td class="${accCls}" style="font-weight:600">${ps.live_accuracy}%</td>
+              <td>${ps.n_resolved}</td>
+              <td>${ps.n_correct}</td>
+              <td class="${diffCls}">${diffStr}</td>
+            </tr>`;
+          }).join('');
+      } else {
+        liveEmpty.style.display = 'block';
+      }
 
       // Table
       const tbody = document.getElementById('results-body');
