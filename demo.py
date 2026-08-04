@@ -34,6 +34,8 @@ parser.add_argument(
         "LLY",
         # Volatile others
         "BA", "UBER",
+        # New additions
+        "GLW", "NBIS", "SPMO",
     ],
     help="Stock ticker symbols to run"
 )
