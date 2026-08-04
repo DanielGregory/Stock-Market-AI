@@ -199,7 +199,37 @@
       "outcome_date": null,
       "outcome_price": null,
       "correct": null
+    },
+    {
+      "run_date": "2026-08-04",
+      "symbol": "GLW",
+      "gru_signal": "UP",
+      "gru_prob": 0.609,
+      "price_at_prediction": 143.36,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-04",
+      "symbol": "NBIS",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.304,
+      "price_at_prediction": 187.88,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-04",
+      "symbol": "SPMO",
+      "gru_signal": "UP",
+      "gru_prob": 0.828,
+      "price_at_prediction": 144.75,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
     }
   ],
-  "last_updated": "2026-08-04T11:51:40Z"
+  "last_updated": "2026-08-04T12:35:05Z"
 }
