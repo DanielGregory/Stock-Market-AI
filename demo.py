@@ -223,6 +223,8 @@ for symbol in args.symbols:
             "current_price":    round(float(current_price), 2),
             "ATR_14":           row_atr,
             "ADX_14":           row_adx,
+            "last_signal":      (chart_data["signals"][-1]
+                                 if chart_data and chart_data.get("signals") else "FLAT"),
         }
         all_results.append(row)
 
@@ -233,56 +235,60 @@ for symbol in args.symbols:
 # ── Portfolio allocation ──────────────────────────────────────────────────────
 
 def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0):
-    """Score UP-signal stocks by confidence × expected_move, cap each at cap_pct%."""
+    """
+    Score UP-signal stocks by confidence × expected_move, cap at cap_pct%.
+    Also produces per-stock action labels (HOLD/ENTER/EXIT/WAIT) and a
+    weighted historical portfolio return from the backtest period.
+    """
+    def _confidence(r):
+        gru_prob = float(r["GRU Prob"])
+        sgd_acc  = float(r["SGD Acc %"]) / 100.0
+        adx      = float(r.get("ADX_14") or 25)
+        return (0.5 * abs(gru_prob - 0.5) * 2
+                + 0.3 * max(0.0, (sgd_acc - 0.5) * 2)
+                + 0.2 * min(adx / 50.0, 1.0))
+
+    # ── Build candidates for allocation (UP signals only) ──────────────────
     candidates = []
     for r in results:
         if r["GRU Signal"].strip() != "UP":
             continue
-        gru_prob = float(r["GRU Prob"])
-        sgd_acc  = float(r["SGD Acc %"]) / 100.0
-        atr      = float(r.get("ATR_14") or 0)
-        adx      = float(r.get("ADX_14") or 25)
-        price    = float(r["current_price"])
-
-        gru_decisive = abs(gru_prob - 0.5) * 2
-        sgd_quality  = max(0.0, (sgd_acc - 0.5) * 2)
-        adx_factor   = min(adx / 50.0, 1.0)
-
-        confidence        = 0.5 * gru_decisive + 0.3 * sgd_quality + 0.2 * adx_factor
-        expected_move_pct = (atr / price * 100) if price > 0 else 0
-        raw_score         = confidence * max(expected_move_pct, 0.5)
-
+        gru_prob  = float(r["GRU Prob"])
+        atr       = float(r.get("ATR_14") or 0)
+        price     = float(r["current_price"])
+        conf      = _confidence(r)
+        exp_move  = (atr / price * 100) if price > 0 else 0
+        raw_score = conf * max(exp_move, 0.5)
         candidates.append({
             "symbol":            r["Symbol"],
             "signal":            "UP",
             "gru_prob":          round(gru_prob, 3),
-            "confidence":        round(confidence, 3),
-            "expected_move_pct": round(expected_move_pct, 2),
+            "confidence":        round(conf, 3),
+            "expected_move_pct": round(exp_move, 2),
             "raw_score":         raw_score,
         })
 
-    if not candidates:
-        return {"positions": [], "cash_pct": 100.0, "n_positions": 0}
-
-    total_score = sum(c["raw_score"] for c in candidates)
-    allocs = {c["symbol"]: (c["raw_score"] / total_score * 100) if total_score > 0
-              else (100.0 / len(candidates)) for c in candidates}
-
-    for _ in range(20):
-        capped = {k: v for k, v in allocs.items() if v > cap_pct}
-        if not capped:
-            break
-        excess = sum(v - cap_pct for v in capped.values())
-        for k in capped:
-            allocs[k] = cap_pct
-        uncapped = {k: v for k, v in allocs.items() if v < cap_pct}
-        if not uncapped:
-            break
-        unc_total = sum(uncapped.values())
-        if unc_total == 0:
-            break
-        for k in uncapped:
-            allocs[k] += (allocs[k] / unc_total) * excess
+    # ── Normalize to 100%, iterative 25%-cap redistribution ───────────────
+    allocs = {}
+    if candidates:
+        total_score = sum(c["raw_score"] for c in candidates)
+        allocs = {c["symbol"]: (c["raw_score"] / total_score * 100) if total_score > 0
+                  else (100.0 / len(candidates)) for c in candidates}
+        for _ in range(20):
+            capped = {k: v for k, v in allocs.items() if v > cap_pct}
+            if not capped:
+                break
+            excess = sum(v - cap_pct for v in capped.values())
+            for k in capped:
+                allocs[k] = cap_pct
+            uncapped = {k: v for k, v in allocs.items() if v < cap_pct}
+            if not uncapped:
+                break
+            unc_total = sum(uncapped.values())
+            if unc_total == 0:
+                break
+            for k in uncapped:
+                allocs[k] += (allocs[k] / unc_total) * excess
 
     invested_pct = sum(allocs.values())
     positions = sorted(
@@ -293,10 +299,48 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0):
         } for c in candidates],
         key=lambda x: x["allocation_pct"], reverse=True,
     )
+
+    # ── Per-stock action labels (all stocks, not just UP) ─────────────────
+    # last_signal tells us what the model was doing at end of the backtest
+    all_actions = []
+    for r in results:
+        last_sig   = r.get("last_signal", "FLAT")
+        was_holding = last_sig in ("BUY", "HOLD")
+        is_bullish  = r["GRU Signal"].strip() == "UP"
+
+        if   was_holding and is_bullish:     action = "HOLD"
+        elif was_holding and not is_bullish: action = "EXIT"
+        elif not was_holding and is_bullish: action = "ENTER"
+        else:                                action = "WAIT"
+
+        all_actions.append({
+            "symbol":      r["Symbol"],
+            "action":      action,
+            "was_holding": was_holding,
+            "gru_signal":  r["GRU Signal"].strip(),
+            "confidence":  round(_confidence(r), 3),
+            "return_pct":  r.get("Return %"),
+            "hold_return_pct": r.get("Hold Return %"),
+            "alpha_pct":   r.get("Alpha %"),
+        })
+
+    # Sort: HOLD first, ENTER, EXIT, WAIT
+    order = {"HOLD": 0, "ENTER": 1, "EXIT": 2, "WAIT": 3}
+    all_actions.sort(key=lambda x: order.get(x["action"], 4))
+
+    # ── Weighted portfolio backtest return ────────────────────────────────
+    portfolio_return_pct = sum(
+        (allocs.get(r["Symbol"], 0) / 100) * (r.get("Return %") or 0)
+        for r in results if r["Symbol"] in allocs
+    )
+
     return {
-        "positions":   positions,
-        "cash_pct":    round(max(0.0, 100.0 - invested_pct), 1),
-        "n_positions": len(positions),
+        "positions":              positions,
+        "all_actions":            all_actions,
+        "cash_pct":               round(max(0.0, 100.0 - invested_pct), 1),
+        "n_positions":            len(positions),
+        "portfolio_return_pct":   round(portfolio_return_pct, 1),
+        "portfolio_value_usd":    int(round(portfolio_usd * (1 + portfolio_return_pct / 100))),
     }
 
 

@@ -1213,8 +1213,9 @@
     <div id="tab-portfolio" style="display:none">
       <p class="section-title">Portfolio Builder</p>
       <p style="font-size:13px;color:var(--muted);margin-bottom:24px">
-        Model selects stocks based on signal confidence and expected price movement.
-        Only <strong style="color:var(--green)">UP</strong> signals receive capital — everything else is cash.
+        Backtest performance of the full strategy, per-stock action labels for this week,
+        and capital allocation among current <strong style="color:var(--green)">UP</strong> signals.
+        HOLD means the model was already long and stays long. ENTER is a new position. EXIT means close it out.
         25% cap per position.
       </p>
 
@@ -1777,36 +1778,76 @@
     // ── Portfolio rendering ────────────────────────────────────────────────────
     function renderPortfolio(portfolio) {
       if (!portfolio) return;
-      const positions = portfolio.positions || [];
-      const cashPct   = portfolio.cash_pct  ?? 0;
-      const totalUSD  = 100_000;
+      const positions  = portfolio.positions   || [];
+      const actions    = portfolio.all_actions  || [];
+      const cashPct    = portfolio.cash_pct     ?? 0;
+      const pfReturn   = portfolio.portfolio_return_pct ?? 0;
+      const pfValueUSD = portfolio.portfolio_value_usd  ?? 100_000;
+      const totalUSD   = 100_000;
+      const cashUSD    = Math.round(totalUSD * cashPct / 100);
 
-      // Summary cards
-      const invested    = positions.reduce((s, p) => s + p.allocation_pct, 0);
-      const avgConf     = positions.length
-        ? positions.reduce((s, p) => s + p.confidence, 0) / positions.length
-        : 0;
-      const avgMove     = positions.length
-        ? positions.reduce((s, p) => s + p.expected_move_pct, 0) / positions.length
-        : 0;
-      const cashUSD     = Math.round(totalUSD * cashPct / 100);
-
+      // ── Summary cards ─────────────────────────────────────────────────────
+      const retSign = pfReturn >= 0 ? '+' : '';
       document.getElementById('pf-summary-cards').innerHTML = [
-        { label: 'Positions',      value: positions.length },
-        { label: 'Invested',       value: invested.toFixed(1) + '%' },
-        { label: 'Cash',           value: '$' + cashUSD.toLocaleString() },
-        { label: 'Avg Confidence', value: (avgConf * 100).toFixed(0) + '%' },
-        { label: 'Avg Exp. Move',  value: '~' + avgMove.toFixed(1) + '%' },
+        { label: 'Portfolio Value',
+          value: '$' + pfValueUSD.toLocaleString(),
+          cls: pfReturn >= 0 ? 'profit-pos' : 'profit-neg' },
+        { label: 'Strategy Return',
+          value: retSign + pfReturn.toFixed(1) + '%',
+          cls: pfReturn >= 0 ? 'profit-pos' : 'profit-neg' },
+        { label: 'Active Positions', value: positions.length },
+        { label: 'Cash Reserve',
+          value: '$' + cashUSD.toLocaleString() + ' (' + cashPct.toFixed(1) + '%)' },
       ].map(c => `
         <div class="pf-card">
           <div class="pf-card-label">${c.label}</div>
-          <div class="pf-card-value">${c.value}</div>
+          <div class="pf-card-value ${c.cls || ''}">${c.value}</div>
         </div>
       `).join('');
 
-      // Position rows — bar width scaled so 25% cap = 100% of bar
-      const posRows = positions.map(p => {
-        const barW   = Math.min((p.allocation_pct / 25) * 100, 100);
+      // ── Action summary (all stocks) ────────────────────────────────────
+      const actionMeta = {
+        HOLD:  { label: 'HOLD',  desc: 'Continue holding',        color: 'var(--green)',   bg: 'rgba(34,197,94,0.1)' },
+        ENTER: { label: 'BUY',   desc: 'Enter new position',      color: '#60a5fa',        bg: 'rgba(96,165,250,0.1)' },
+        EXIT:  { label: 'SELL',  desc: 'Exit position',           color: 'var(--red)',     bg: 'rgba(239,68,68,0.1)' },
+        WAIT:  { label: 'WAIT',  desc: 'Stay out — not bullish',  color: 'var(--muted)',   bg: 'transparent' },
+      };
+
+      const actionRows = actions.map(a => {
+        const m       = actionMeta[a.action] || actionMeta.WAIT;
+        const confPct = Math.round(a.confidence * 100);
+        const ret     = a.return_pct  != null ? ((a.return_pct  >= 0 ? '+' : '') + a.return_pct.toFixed(1)  + '%') : '—';
+        const hold    = a.hold_return_pct != null ? ((a.hold_return_pct >= 0 ? '+' : '') + a.hold_return_pct.toFixed(1) + '%') : '—';
+        const retCls  = a.return_pct != null ? (a.return_pct >= 0 ? 'profit-pos' : 'profit-neg') : '';
+        const holdCls = a.hold_return_pct != null ? (a.hold_return_pct >= 0 ? 'profit-pos' : 'profit-neg') : '';
+        return `
+        <div class="pf-row" style="background:${m.bg};border-radius:6px;margin-bottom:4px;padding:12px 14px">
+          <div class="pf-sym">${a.symbol}</div>
+          <div class="pf-sig" style="background:${m.bg};color:${m.color};border:1px solid ${m.color};width:48px">
+            ${m.label}
+          </div>
+          <div class="pf-bar-wrap">
+            <div class="pf-bar-labels">
+              <span style="color:${m.color};font-weight:600">${m.desc}</span>
+              <span>Confidence <strong>${confPct}%</strong></span>
+            </div>
+          </div>
+          <div style="display:flex;gap:16px;text-align:right;flex-shrink:0">
+            <div>
+              <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Strategy</div>
+              <div class="${retCls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${ret}</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Buy&amp;Hold</div>
+              <div class="${holdCls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${hold}</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+
+      // ── Allocation bars (active positions + cash) ─────────────────────
+      const allocRows = positions.map(p => {
+        const barW    = Math.min((p.allocation_pct / 25) * 100, 100);
         const confPct = Math.round(p.confidence * 100);
         return `
         <div class="pf-row">
@@ -1825,14 +1866,13 @@
         </div>`;
       }).join('');
 
-      // Cash row
       const cashRow = cashPct > 0 ? `
         <div class="pf-row">
           <div class="pf-sym" style="color:var(--muted)">CASH</div>
           <div class="pf-sig cash">—</div>
           <div class="pf-bar-wrap">
             <div class="pf-bar-labels">
-              <span style="color:var(--muted)">No position — signals not bullish on remaining stocks</span>
+              <span style="color:var(--muted)">Undeployed — no additional UP signals</span>
             </div>
             <div class="pf-bar-bg">
               <div class="pf-bar-fill cash" style="width:${cashPct}%"></div>
@@ -1842,8 +1882,15 @@
           <div class="pf-alloc-usd" style="color:var(--muted)">$${cashUSD.toLocaleString()}</div>
         </div>` : '';
 
-      document.getElementById('pf-positions').innerHTML = posRows + cashRow ||
-        '<div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">No UP signals this run — 100% cash.</div>';
+      document.getElementById('pf-positions').innerHTML = `
+        <p class="section-title" style="margin-bottom:16px">This Week's Actions</p>
+        <div style="margin-bottom:24px">
+          ${actionRows || '<div style="padding:16px;color:var(--muted);font-size:13px">No action data available.</div>'}
+        </div>
+        <p class="section-title" style="margin-bottom:16px">Capital Allocation</p>
+        <div>
+          ${allocRows + cashRow || '<div style="padding:16px;color:var(--muted);font-size:13px">No UP signals — 100% cash.</div>'}
+        </div>`;
     }
   </script>
 </body>
