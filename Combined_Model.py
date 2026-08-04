@@ -72,12 +72,15 @@ BASE_FEATURES = [
     'Obv', 'Volume_ratio',
     # MACD family
     'MACD', 'MACD_hist', 'MACD_Crossover',
+    # Trend strength (ADX-14): distinguishes trending from choppy markets
+    'ADX_14',
     # Sentiment
     'sentiment',
 ]
-# Features seen by SGD and RL include GRU output
-EXTENDED_FEATURES = BASE_FEATURES + ['gru_prob']
-# RL state additionally sees SGD confidence
+# Features seen by SGD and RL include GRU output + 3-week GRU prob EMA
+# (persistence signal: has GRU been consistently bullish for multiple weeks?)
+EXTENDED_FEATURES = BASE_FEATURES + ['gru_prob', 'gru_prob_ema3']
+# RL state additionally sees SGD confidence + hold streak
 RL_FEATURES = EXTENDED_FEATURES + ['sgd_conf']
 
 
@@ -189,6 +192,20 @@ def add_features(data):
 
         vol_20 = data['Volume'].rolling(window=20).mean()
         data['Volume_ratio'] = data['Volume'] / (vol_20 + 1e-9)
+
+        # ── ADX-14 (trend strength, not direction) ────────────────────────────
+        # Values: <20 = weak/choppy, 20-40 = developing trend, >40 = strong trend
+        prev_high = data['High'].shift(1)
+        prev_low  = data['Low'].shift(1)
+        plus_dm   = (data['High'] - prev_high).clip(lower=0).where(
+                        (data['High'] - prev_high) > (prev_low - data['Low']), 0)
+        minus_dm  = (prev_low - data['Low']).clip(lower=0).where(
+                        (prev_low - data['Low']) > (data['High'] - prev_high), 0)
+        atr14     = tr.rolling(window=14).mean()
+        plus_di   = 100 * plus_dm.rolling(window=14).mean()  / (atr14 + 1e-9)
+        minus_di  = 100 * minus_dm.rolling(window=14).mean() / (atr14 + 1e-9)
+        dx        = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-9)
+        data['ADX_14'] = dx.ewm(span=14, adjust=False).mean()
 
         # ── MACD family ───────────────────────────────────────────────────────
         data['12_EMAs'] = data['Close'].ewm(span=12, adjust=False).mean()
@@ -443,6 +460,11 @@ def run_gru_stage(data, symbol, model_dir):
 
     data = data.copy()
     data['gru_prob'] = gru_prob_col
+
+    # 3-period EMA of gru_prob: gives SGD/RL a persistence signal so trending
+    # sequences get a smoother, less noisy upstream probability.
+    data['gru_prob_ema3'] = data['gru_prob'].ewm(span=3, adjust=False).mean()
+
     data_with_gru = data.dropna(subset=['gru_prob']).copy()
 
     return data_with_gru, gru_accuracy, next_prob
@@ -567,19 +589,21 @@ class CombinedTradingEnv(gym.Env):
         self.action_space = spaces.Discrete(2)
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf,
-            shape=(len(RL_FEATURES) + 1,),  # +1 for current position
+            shape=(len(RL_FEATURES) + 2,),  # +1 position, +1 hold_streak
             dtype=np.float32
         )
         self.data = data.reset_index(drop=True)
         self.current_step = 0
         self.position = 0      # 0 = flat, 1 = long
         self.entry_price = 0.0
+        self.hold_streak = 0   # consecutive weeks held long
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 0
         self.position = 0
         self.entry_price = 0.0
+        self.hold_streak = 0
         return self._get_obs(), {}
 
     def step(self, action):
@@ -589,10 +613,12 @@ class CombinedTradingEnv(gym.Env):
             if self.position == 0:
                 self.position = 1
                 self.entry_price = current_price
+            self.hold_streak += 1
         else:                    # exit / stay flat
             if self.position == 1:
                 self.position = 0
                 self.entry_price = 0.0
+            self.hold_streak = 0
 
         next_step = min(self.current_step + HOLD_PERIOD, len(self.data) - 1)
         next_price = self.data['Close'].iloc[next_step]
@@ -606,7 +632,7 @@ class CombinedTradingEnv(gym.Env):
     def _get_obs(self):
         row = self.data.iloc[self.current_step]
         features = row[RL_FEATURES].values.astype(np.float32)
-        return np.append(features, float(self.position))
+        return np.append(features, [float(self.position), float(self.hold_streak)])
 
 
 def run_rl_stage(data, sgd_result, symbol, model_dir):
