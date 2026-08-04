@@ -891,6 +891,52 @@
       text-align: right;
       flex-shrink: 0;
     }
+
+    /* ── Trade log ──────────────────────────────────────────────── */
+    .log-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+      padding: 14px 0 10px;
+    }
+    .log-toggle:hover .toggle-btn { background: var(--accent); color: #fff; }
+    .log-body { display: none; }
+    .log-body.open { display: block; }
+    .log-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .log-table th {
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .log-table td { padding: 7px 10px; border-bottom: 1px solid rgba(42,45,62,0.4); }
+    .log-table tr:last-child td { border-bottom: none; }
+    .log-table td:first-child { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .log-sym { font-family: var(--mono); font-weight: 700; }
+    .log-sig-up   { color: var(--green); font-weight: 600; }
+    .log-sig-down { color: var(--red);   font-weight: 600; }
+    .log-correct   { color: var(--green); }
+    .log-incorrect { color: var(--red);   }
+    .log-pending   { color: var(--muted); font-style: italic; }
+
+    /* ── Mobile responsive ──────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .pf-row { flex-wrap: wrap; gap: 6px 10px; }
+      .pf-bar-wrap { flex-basis: 100%; order: 4; }
+      .pf-alloc-usd { display: none; }
+      .pf-alloc-pct { font-size: 14px; }
+      .pf-sym { width: 48px; }
+      .pf-sig { width: 40px; font-size: 9px; padding: 2px 4px; }
+      /* action row right-side stats: stack vertically */
+      .pf-action-stats { flex-direction: column; gap: 4px; }
+      .pf-action-stats > div { display: flex; gap: 8px; align-items: baseline; }
+      .pf-action-stats .stat-label { font-size: 9px; min-width: 52px; }
+    }
   </style>
 </head>
 <body>
@@ -1228,6 +1274,34 @@
         </div>
       </div>
 
+      <!-- Trade log (collapsible) -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px 20px 16px;margin-bottom:24px">
+        <div class="log-toggle" onclick="toggleLog()">
+          <p class="section-title" style="margin-bottom:0">Decision Log</p>
+          <button class="toggle-btn" id="log-btn">Show</button>
+        </div>
+        <div class="log-body" id="log-body">
+          <div style="overflow-x:auto">
+            <table class="log-table" id="log-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Symbol</th>
+                  <th>Signal</th>
+                  <th>Confidence</th>
+                  <th>Price</th>
+                  <th>Outcome (5d later)</th>
+                </tr>
+              </thead>
+              <tbody id="log-body-rows"></tbody>
+            </table>
+          </div>
+          <p style="font-size:11px;color:var(--muted);margin-top:10px">
+            Each row is one weekly model decision. Outcome resolves 5 trading days after the signal date.
+          </p>
+        </div>
+      </div>
+
       <p style="font-size:11px;color:var(--muted);line-height:1.8">
         <strong>Confidence</strong> = 50% GRU signal strength + 30% SGD accuracy quality + 20% ADX trend strength.<br>
         <strong>Expected Move</strong> = ATR-14 as % of current price — proxy for the stock's typical weekly range.<br>
@@ -1461,6 +1535,7 @@
 
       // Portfolio tab
       renderPortfolio(data.portfolio);
+      renderTradeLog(data.recent_predictions);
 
       // Table
       const tbody = document.getElementById('results-body');
@@ -1766,6 +1841,62 @@
       btn.textContent = open ? 'Hide' : 'Show';
     }
 
+    function toggleLog() {
+      const body = document.getElementById('log-body');
+      const btn  = document.getElementById('log-btn');
+      const open = body.classList.toggle('open');
+      btn.textContent = open ? 'Hide' : 'Show';
+    }
+
+    // ── Trade log rendering ────────────────────────────────────────────────────
+    function renderTradeLog(preds) {
+      const rows = (preds || []);
+      if (!rows.length) {
+        document.getElementById('log-body-rows').innerHTML =
+          '<tr><td colspan="6" style="color:var(--muted);padding:16px;text-align:center">No log entries yet — predictions are recorded each daily run.</td></tr>';
+        return;
+      }
+
+      // Group by run_date so same-day entries collapse visually
+      let lastDate = null;
+      document.getElementById('log-body-rows').innerHTML = rows.map(r => {
+        const isNewDate = r.run_date !== lastDate;
+        lastDate = r.run_date;
+        const dateCell = isNewDate
+          ? `<td rowspan="1" style="white-space:nowrap">${r.run_date}</td>`
+          : `<td style="color:transparent;font-size:0;padding:0 10px">·</td>`;
+
+        const sigCls  = r.gru_signal === 'UP' ? 'log-sig-up' : 'log-sig-down';
+        const sigIcon = r.gru_signal === 'UP' ? '▲ UP' : '▼ DOWN';
+        const confPct = r.gru_prob != null ? Math.round(Math.abs(r.gru_prob - 0.5) * 200) + '%' : '—';
+        const price   = r.price_at_prediction != null
+          ? '$' + r.price_at_prediction.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+          : '—';
+
+        let outCell;
+        if (r.correct === null || r.correct === undefined) {
+          outCell = `<td class="log-pending">Pending (resolves ${r.outcome_date || '…'})</td>`;
+        } else {
+          const move = r.outcome_price != null && r.price_at_prediction != null
+            ? ((r.outcome_price - r.price_at_prediction) / r.price_at_prediction * 100).toFixed(1) + '%'
+            : '';
+          const moveCls = parseFloat(move) >= 0 ? 'profit-pos' : 'profit-neg';
+          outCell = r.correct
+            ? `<td class="log-correct">✓ Correct <span class="${moveCls}" style="font-size:11px">${move}</span></td>`
+            : `<td class="log-incorrect">✗ Wrong <span class="${moveCls}" style="font-size:11px">${move}</span></td>`;
+        }
+
+        return `<tr>
+          ${dateCell}
+          <td class="log-sym">${r.symbol}</td>
+          <td class="${sigCls}">${sigIcon}</td>
+          <td>${confPct}</td>
+          <td style="font-family:var(--mono)">${price}</td>
+          ${outCell}
+        </tr>`;
+      }).join('');
+    }
+
     // ── Tab switching ──────────────────────────────────────────────────────────
     function switchTab(tab) {
       document.querySelectorAll('.tab-btn').forEach(b =>
@@ -1786,22 +1917,39 @@
       const totalUSD   = 100_000;
       const cashUSD    = Math.round(totalUSD * cashPct / 100);
 
+      // Build timeframe label from backend dates
+      let timeLabel = '';
+      if (portfolio.test_days > 0) {
+        const weeks = Math.round(portfolio.test_days / 5);
+        const months = (portfolio.test_days / 21).toFixed(1);
+        timeLabel = `over ~${weeks} weeks`;
+        if (portfolio.test_start && portfolio.test_end) {
+          const s = portfolio.test_start.slice(0, 7); // "YYYY-MM"
+          const e = portfolio.test_end.slice(0, 7);
+          timeLabel += ` (${s} – ${e})`;
+        }
+      }
+
       // ── Summary cards ─────────────────────────────────────────────────────
       const retSign = pfReturn >= 0 ? '+' : '';
       document.getElementById('pf-summary-cards').innerHTML = [
         { label: 'Portfolio Value',
           value: '$' + pfValueUSD.toLocaleString(),
+          sub: timeLabel ? 'Starting from $100,000' : '',
           cls: pfReturn >= 0 ? 'profit-pos' : 'profit-neg' },
         { label: 'Strategy Return',
           value: retSign + pfReturn.toFixed(1) + '%',
+          sub: timeLabel,
           cls: pfReturn >= 0 ? 'profit-pos' : 'profit-neg' },
         { label: 'Active Positions', value: positions.length },
         { label: 'Cash Reserve',
-          value: '$' + cashUSD.toLocaleString() + ' (' + cashPct.toFixed(1) + '%)' },
+          value: '$' + cashUSD.toLocaleString(),
+          sub: cashPct.toFixed(1) + '% undeployed' },
       ].map(c => `
         <div class="pf-card">
           <div class="pf-card-label">${c.label}</div>
           <div class="pf-card-value ${c.cls || ''}">${c.value}</div>
+          ${c.sub ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">${c.sub}</div>` : ''}
         </div>
       `).join('');
 
@@ -1832,13 +1980,13 @@
               <span>Confidence <strong>${confPct}%</strong></span>
             </div>
           </div>
-          <div style="display:flex;gap:16px;text-align:right;flex-shrink:0">
+          <div class="pf-action-stats" style="display:flex;gap:16px;text-align:right;flex-shrink:0">
             <div>
-              <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Strategy</div>
+              <div class="stat-label" style="font-size:10px;color:var(--muted);margin-bottom:2px">Strategy</div>
               <div class="${retCls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${ret}</div>
             </div>
             <div>
-              <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Buy&amp;Hold</div>
+              <div class="stat-label" style="font-size:10px;color:var(--muted);margin-bottom:2px">Buy&amp;Hold</div>
               <div class="${holdCls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${hold}</div>
             </div>
           </div>

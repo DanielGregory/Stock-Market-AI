@@ -334,6 +334,16 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0):
         for r in results if r["Symbol"] in allocs
     )
 
+    # Determine backtest date range from first available chart_data
+    test_start, test_end, test_days = None, None, 0
+    for r in results:
+        cd = r.get("chart_data")
+        if cd and cd.get("dates") and len(cd["dates"]) > 1:
+            test_start = cd["dates"][0]
+            test_end   = cd["dates"][-1]
+            test_days  = len(cd["dates"])
+            break
+
     return {
         "positions":              positions,
         "all_actions":            all_actions,
@@ -341,6 +351,9 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0):
         "n_positions":            len(positions),
         "portfolio_return_pct":   round(portfolio_return_pct, 1),
         "portfolio_value_usd":    int(round(portfolio_usd * (1 + portfolio_return_pct / 100))),
+        "test_start":             test_start,
+        "test_end":               test_end,
+        "test_days":              test_days,
     }
 
 
@@ -531,6 +544,11 @@ if all_results:
             "spy_return_pct":      spy_return_pct,
             "prediction_summary":  prediction_summary,
             "portfolio":           portfolio_data,
+            "recent_predictions":  sorted(
+                pred_log.get("predictions", []),
+                key=lambda x: x.get("run_date", ""),
+                reverse=True,
+            )[:40],
             "results": json_records,
         })
         with open(json_path, "w") as f:
