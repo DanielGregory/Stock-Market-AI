@@ -434,10 +434,12 @@
       footer  { padding: 14px; flex-direction: column; gap: 6px; }
       .disclaimer { margin-left: 0; }
 
-      /* Pipeline: vertical stack with rotated arrow */
-      .pipeline       { flex-direction: column; padding: 14px 16px; gap: 0; }
-      .stage          { padding: 6px 16px; }
-      .arrow          { transform: rotate(90deg); line-height: 1; padding: 2px 0; }
+      /* Pipeline: compact horizontal strip on mobile */
+      .pipeline       { padding: 10px 12px; gap: 0; flex-wrap: nowrap; }
+      .stage          { padding: 4px 6px; }
+      .stage-box      { padding: 6px 10px; font-size: 11px; }
+      .stage-label    { display: none; }
+      .arrow          { font-size: 14px; padding: 0 2px; }
 
       /* Cards: 2-column grid */
       .grid           { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 24px; }
