@@ -963,6 +963,7 @@
     <div class="tab-nav">
       <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
       <button class="tab-btn" data-tab="portfolio" onclick="switchTab('portfolio')">Portfolio</button>
+      <button class="tab-btn" data-tab="sandbox" onclick="switchTab('sandbox')">Sandbox ⚡</button>
     </div>
 
     <div id="tab-dashboard">
@@ -1338,6 +1339,23 @@
         <strong>Allocation</strong> = proportional to Confidence × Expected Move, capped at 25% per position. Remainder is held in cash.
       </p>
     </div><!-- end tab-portfolio -->
+
+    <!-- Sandbox tab -->
+    <div id="tab-sandbox" style="display:none">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;flex-wrap:wrap">
+        <p class="section-title" style="margin-bottom:0">Aggressive Sandbox ⚡</p>
+        <span style="font-size:12px;color:var(--amber);background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:20px;padding:2px 10px;font-weight:600">ISOLATED — does not affect production model</span>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:24px">
+        High-volatility test environment. Concentrated top-5 positions, 3-day hold period, and an expanded universe including leveraged ETFs and high-beta names.
+        Model weights live in <code style="font-family:var(--mono);font-size:12px">Aggressive_Models/</code> — entirely separate from the production pipeline.
+      </p>
+      <div id="sandbox-content">
+        <div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">
+          Loading sandbox data…
+        </div>
+      </div>
+    </div><!-- end tab-sandbox -->
 
   </main>
 
@@ -2008,12 +2026,151 @@
     }
 
     // ── Tab switching ──────────────────────────────────────────────────────────
+    let _sandboxLoaded = false;
+
     function switchTab(tab) {
       document.querySelectorAll('.tab-btn').forEach(b =>
         b.classList.toggle('active', b.dataset.tab === tab)
       );
       document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
       document.getElementById('tab-portfolio').style.display = tab === 'portfolio' ? '' : 'none';
+      document.getElementById('tab-sandbox').style.display  = tab === 'sandbox'    ? '' : 'none';
+      if (tab === 'sandbox' && !_sandboxLoaded) {
+        _sandboxLoaded = true;
+        renderSandbox();
+      }
+    }
+
+    // ── Sandbox tab ────────────────────────────────────────────────────────────
+    async function renderSandbox() {
+      const el = document.getElementById('sandbox-content');
+      let data;
+      try {
+        const resp = await fetch('data/results_aggressive.json?_=' + Date.now());
+        if (!resp.ok) throw new Error('not found');
+        data = await resp.json();
+      } catch (_) {
+        el.innerHTML = `<div style="padding:48px;text-align:center;color:var(--muted);font-size:14px">
+          No aggressive run yet — the sandbox workflow runs every Sunday at 04:00 UTC.<br>
+          <span style="font-size:12px;margin-top:8px;display:block">Trigger it manually from the GitHub Actions tab.</span>
+        </div>`;
+        return;
+      }
+
+      const pf = data.portfolio || {};
+      const positions = pf.positions || [];
+      const stocks = data.stocks || [];
+      const rc = data.run_config || {};
+      const ts = data.timestamp ? new Date(data.timestamp).toLocaleString() : 'unknown';
+      const benchmarks = pf.benchmarks || {};
+
+      // KPI strip
+      const stratRet = pf.strategy_return_pct != null ? pf.strategy_return_pct.toFixed(1) : null;
+      const vooRet   = benchmarks.VOO  != null ? benchmarks.VOO.toFixed(1)  : null;
+      const spmoRet  = benchmarks.SPMO != null ? benchmarks.SPMO.toFixed(1) : null;
+
+      const kpiColor = v => v == null ? '' : (parseFloat(v) >= 0 ? 'color:var(--green)' : 'color:var(--red)');
+      const sign     = v => v != null && parseFloat(v) >= 0 ? '+' : '';
+
+      // Benchmark bar chart
+      const entries = [];
+      if (stratRet != null) entries.push({ label: 'Strategy', val: parseFloat(stratRet), primary: true });
+      if (vooRet   != null) entries.push({ label: 'VOO',      val: parseFloat(vooRet),  primary: false });
+      if (spmoRet  != null) entries.push({ label: 'SPMO',     val: parseFloat(spmoRet), primary: false });
+
+      const maxAbs = entries.length ? Math.max(...entries.map(e => Math.abs(e.val)), 1) : 1;
+      const benchHtml = entries.length ? `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:24px">
+          <p class="section-title" style="margin-bottom:14px">Benchmark Comparison <span style="font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400">(same backtest window)</span></p>
+          ${entries.map(e => {
+            const pct = (Math.abs(e.val) / maxAbs * 70).toFixed(1);
+            const col = e.val >= 0 ? 'var(--green)' : 'var(--red)';
+            const alpha = e.primary ? '0.6' : '0.25';
+            const stratAlpha = e.primary && entries[0].val > (entries[1]?.val || -999) ? '  ↑ alpha' : '';
+            return `
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <span style="font-family:var(--mono);font-size:12px;width:60px;color:${e.primary ? 'var(--text)' : 'var(--muted)'}">${e.label}</span>
+                <div style="flex:1;background:var(--bg);border-radius:4px;height:18px;overflow:hidden">
+                  <div style="width:${pct}%;height:100%;background:${col};opacity:${alpha};border-radius:4px"></div>
+                </div>
+                <span style="font-family:var(--mono);font-size:13px;font-weight:700;${kpiColor(e.val)};width:58px;text-align:right">${sign(e.val)}${e.val.toFixed(1)}%</span>
+                ${e.primary && entries.length > 1 && e.val > Math.max(...entries.slice(1).map(x => x.val)) ? '<span style="font-size:11px;color:var(--green);background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:20px;padding:1px 8px;font-weight:600">↑ alpha</span>' : ''}
+              </div>`;
+          }).join('')}
+        </div>` : '';
+
+      // Action map
+      const actionMap = {};
+      (stocks).forEach(s => { actionMap[s.symbol] = s.action; });
+
+      // Top picks (active positions)
+      const activePicks = positions.filter(p => (actionMap[p.symbol] || '').toUpperCase() !== 'WAIT' && (actionMap[p.symbol] || '').toUpperCase() !== 'EXIT');
+      const otherSymbols = stocks.filter(s => !activePicks.find(p => p.symbol === s.symbol));
+
+      const actionColor = a => {
+        const u = (a || '').toUpperCase();
+        if (u === 'ENTER') return { bg: 'rgba(34,197,94,0.15)',  col: 'var(--green)', label: 'ENTER' };
+        if (u === 'HOLD')  return { bg: 'rgba(99,102,241,0.15)', col: 'var(--accent)', label: 'HOLD' };
+        if (u === 'EXIT')  return { bg: 'rgba(239,68,68,0.15)',  col: 'var(--red)',   label: 'EXIT' };
+        return { bg: 'rgba(100,116,139,0.15)', col: 'var(--muted)', label: u || 'WAIT' };
+      };
+
+      const activeHtml = activePicks.length ? activePicks.map((p, i) => {
+        const ac = actionColor(actionMap[p.symbol]);
+        const barPct = Math.min(100, (p.allocation_pct || 0) / 40 * 100).toFixed(1);
+        return `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)">
+            <span style="font-family:var(--mono);font-weight:800;font-size:16px;width:56px">${p.symbol}</span>
+            <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:${ac.bg};color:${ac.col}">${ac.label}</span>
+            <div style="flex:1">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:3px">
+                <span>Allocation</span>
+                <span style="font-family:var(--mono);color:var(--text)">${(p.allocation_pct || 0).toFixed(1)}%</span>
+              </div>
+              <div style="background:var(--bg);border-radius:3px;height:6px;overflow:hidden">
+                <div style="width:${barPct}%;height:100%;background:var(--amber);border-radius:3px"></div>
+              </div>
+            </div>
+            <span style="font-family:var(--mono);font-size:13px;text-align:right;min-width:54px">${p.amount_usd != null ? '$' + Math.round(p.amount_usd).toLocaleString() : ''}</span>
+          </div>`;
+      }).join('') : '<div style="padding:20px 0;color:var(--muted);font-size:13px">No active picks this run.</div>';
+
+      const otherHtml = otherSymbols.length ? `
+        <div style="margin-top:28px;opacity:0.6">
+          <p class="section-title" style="margin-bottom:12px">All Other Signals</p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            ${otherSymbols.map(s => {
+              const ac = actionColor(s.action);
+              const sig = (s.signal || '').toUpperCase() === 'UP' ? '▲' : (s.signal || '').toUpperCase() === 'DOWN' ? '▼' : '–';
+              const sigCol = (s.signal || '').toUpperCase() === 'UP' ? 'var(--green)' : (s.signal || '').toUpperCase() === 'DOWN' ? 'var(--red)' : 'var(--muted)';
+              return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:12px">
+                <span style="font-family:var(--mono);font-weight:700">${s.symbol}</span>
+                <span style="color:${sigCol};margin:0 4px">${sig}</span>
+                <span style="font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;background:${ac.bg};color:${ac.col}">${ac.label}</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>` : '';
+
+      const cashHtml = pf.cash_held_pct != null
+        ? `<div style="font-size:12px;color:var(--muted);margin-top:12px">Cash held: <span style="font-family:var(--mono);color:var(--text)">${pf.cash_held_pct.toFixed(1)}%</span> of $${(pf.portfolio_size || 100000).toLocaleString()}</div>`
+        : '';
+
+      el.innerHTML = `
+        <div style="font-size:12px;color:var(--muted);margin-bottom:20px;font-family:var(--mono)">
+          Last run: ${ts} &nbsp;·&nbsp; Mode: ${rc.mode || '—'} &nbsp;·&nbsp; Universe: ${stocks.length} stocks &nbsp;·&nbsp; Epochs: ${rc.epochs || '—'}
+        </div>
+
+        ${benchHtml}
+
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:24px">
+          <p class="section-title" style="margin-bottom:14px">Active Positions <span style="font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400">(top ${activePicks.length} concentrated picks)</span></p>
+          ${activeHtml}
+          ${cashHtml}
+        </div>
+
+        ${otherHtml}
+      `;
     }
 
     // ── Live held-position tracking ───────────────────────────────────────────

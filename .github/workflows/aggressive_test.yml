@@ -1,0 +1,67 @@
+name: Aggressive Profile — Sandbox Test
+
+on:
+  schedule:
+    # Runs every Sunday at 04:00 UTC (after main retrain finishes at 02:00)
+    - cron: '0 4 * * 0'
+  workflow_dispatch:  # allow manual trigger from GitHub UI
+
+permissions:
+  contents: write
+
+jobs:
+  aggressive-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore cached aggressive models
+        run: |
+          git fetch origin main
+          git checkout origin/main -- Aggressive_Models/ 2>/dev/null || echo "No aggressive models yet — training fresh"
+          git checkout origin/main -- web/data/results_aggressive.json 2>/dev/null || echo "No aggressive results yet — starting fresh"
+
+      - name: Run aggressive profile (full retrain)
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          PORTFOLIO_SIZE: 100000
+        run: |
+          python demo.py \
+            --profile aggressive \
+            --mode train \
+            --symbols \
+              AAPL MSFT GOOGL AMZN META NVDA AVGO ORCL \
+              AMD QCOM CRM NFLX INTC \
+              MU GLW \
+              CRWD PLTR COIN NBIS \
+              JPM GS V MA BAC MS \
+              LLY UNH JNJ ABBV MRK \
+              TSLA HD MCD NKE COST \
+              WMT PG KO \
+              XOM CVX \
+              CAT HON GE BA \
+              SPMO \
+              TQQQ SOXL MSTR SMCI RKLB IONQ MARA UPST \
+            --epochs 50 \
+            --steps 16000
+
+      - name: Commit aggressive results and models
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/data/results_aggressive.json 2>/dev/null || true
+          git add Aggressive_Models/ 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "chore: update aggressive sandbox results [skip ci]"
+          git pull --rebase origin main
+          git push origin main
