@@ -1275,6 +1275,8 @@
 
       <div class="pf-cards" id="pf-summary-cards"></div>
 
+      <div id="pf-benchmarks"></div>
+
       <p class="section-title" style="margin-top:8px">Allocation</p>
       <div class="pf-list" id="pf-positions">
         <div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">
@@ -2057,6 +2059,49 @@
           ${c.sub ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">${c.sub}</div>` : ''}
         </div>
       `).join('');
+
+      // ── Benchmark comparison ───────────────────────────────────────────
+      const benchmarks  = portfolio.benchmarks || {};
+      const stratReturn = pfReturn;
+      const vooReturn   = benchmarks.VOO  ?? null;
+      const spmoReturn  = benchmarks.SPMO ?? null;
+
+      const benchItems = [
+        { label: 'This Strategy', ret: stratReturn, color: stratReturn >= 0 ? 'var(--green)' : 'var(--red)', bold: true },
+        { label: 'VOO',           ret: vooReturn,   color: '#94a3b8', bold: false },
+        { label: 'SPMO',          ret: spmoReturn,  color: '#f59e0b', bold: false },
+      ].filter(b => b.ret !== null);
+
+      let benchHTML = '';
+      if (benchItems.length > 1) {
+        const maxAbs = Math.max(...benchItems.map(b => Math.abs(b.ret)), 1);
+        const rows = benchItems.map(b => {
+          const pct     = ((b.ret / maxAbs) * 100).toFixed(1);
+          const pctW    = Math.max(Math.abs(b.ret / maxAbs) * 100, 2).toFixed(1);
+          const retStr  = (b.ret >= 0 ? '+' : '') + b.ret.toFixed(1) + '%';
+          const retCls  = b.ret >= 0 ? 'profit-pos' : 'profit-neg';
+          const beats   = b.bold && vooReturn !== null && stratReturn > vooReturn;
+          return `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
+            <div style="width:96px;font-size:12px;color:${b.bold ? 'var(--text)' : 'var(--muted)'};
+                        font-weight:${b.bold ? '700' : '400'};flex-shrink:0">${b.label}</div>
+            <div style="flex:1;background:rgba(255,255,255,0.06);border-radius:3px;height:7px;overflow:hidden">
+              <div style="width:${pctW}%;height:100%;border-radius:3px;
+                          background:${b.color};opacity:${b.bold ? '1' : '0.6'}"></div>
+            </div>
+            <div style="width:54px;text-align:right;font-family:var(--mono);font-size:12px;
+                        font-weight:${b.bold ? '700' : '400'}" class="${retCls}">${retStr}</div>
+            ${beats && b.bold ? '<div style="font-size:10px;color:var(--green);flex-shrink:0">↑ alpha</div>' : '<div style="width:46px"></div>'}
+          </div>`;
+        }).join('');
+        benchHTML = `
+        <div style="padding:14px 16px;background:var(--card);border-radius:10px;margin-bottom:20px">
+          <div style="font-size:10px;letter-spacing:.08em;font-weight:700;color:var(--muted);
+                      text-transform:uppercase;margin-bottom:12px">vs Benchmark${timeLabel ? ' · ' + timeLabel : ''}</div>
+          ${rows}
+        </div>`;
+      }
+      document.getElementById('pf-benchmarks').innerHTML = benchHTML;
 
       // ── Action meta ────────────────────────────────────────────────────
       const actionMeta = {

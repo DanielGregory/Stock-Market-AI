@@ -628,21 +628,26 @@ if all_results:
     except Exception as e:
         print(f"\n  Could not save Excel file: {e}")
 
-    # ── SPY baseline (buy-and-hold over the same test period) ─────────────────
-    spy_return_pct = None
-    try:
-        print("\n  Fetching SPY baseline...")
-        spy_df = pipeline.fetch_historical_data("SPY", days=400)
-        if not spy_df.empty and len(spy_df) >= pipeline.TEST_SIZE:
-            spy_test = spy_df.iloc[-pipeline.TEST_SIZE:]
-            spy_start = float(spy_test["Close"].iloc[0])
-            spy_end   = float(spy_test["Close"].iloc[-1])
-            spy_return_pct = round((spy_end - spy_start) / spy_start * 100, 1)
-            print(f"  SPY return over test period: {spy_return_pct:+.1f}%")
-        else:
-            print("  SPY data unavailable, skipping baseline.")
-    except Exception as e:
-        print(f"  SPY fetch failed: {e}")
+    # ── Benchmark returns over the same test window ───────────────────────────
+    def _fetch_benchmark_return(ticker):
+        try:
+            df = pipeline.fetch_historical_data(ticker, days=400)
+            if df.empty or len(df) < pipeline.TEST_SIZE:
+                return None
+            test  = df.iloc[-pipeline.TEST_SIZE:]
+            start = float(test["Close"].iloc[0])
+            end   = float(test["Close"].iloc[-1])
+            return round((end - start) / start * 100, 1)
+        except Exception:
+            return None
+
+    print("\n  Fetching benchmarks (SPY, VOO, SPMO)...")
+    spy_return_pct  = _fetch_benchmark_return("SPY")
+    voo_return_pct  = _fetch_benchmark_return("VOO")
+    spmo_return_pct = _fetch_benchmark_return("SPMO")
+    for name, ret in [("SPY", spy_return_pct), ("VOO", voo_return_pct), ("SPMO", spmo_return_pct)]:
+        print(f"  {name}: {f'{ret:+.1f}%' if ret is not None else 'unavailable'}")
+    portfolio_data["benchmarks"] = {"VOO": voo_return_pct, "SPMO": spmo_return_pct}
 
     # ── Forward prediction tracking ───────────────────────────────────────────
     import math
