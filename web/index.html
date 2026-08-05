@@ -2059,13 +2059,13 @@
 
       const pf = data.portfolio || {};
       const positions = pf.positions || [];
-      const stocks = data.stocks || [];
+      const stocks = data.results || data.stocks || [];
       const rc = data.run_config || {};
-      const ts = data.timestamp ? new Date(data.timestamp).toLocaleString() : 'unknown';
+      const ts = (data.last_updated || data.timestamp) ? new Date(data.last_updated || data.timestamp).toLocaleString() : 'unknown';
       const benchmarks = pf.benchmarks || {};
 
       // KPI strip
-      const stratRet = pf.strategy_return_pct != null ? pf.strategy_return_pct.toFixed(1) : null;
+      const stratRet = (pf.portfolio_return_pct ?? pf.strategy_return_pct) != null ? (pf.portfolio_return_pct ?? pf.strategy_return_pct).toFixed(1) : null;
       const vooRet   = benchmarks.VOO  != null ? benchmarks.VOO.toFixed(1)  : null;
       const spmoRet  = benchmarks.SPMO != null ? benchmarks.SPMO.toFixed(1) : null;
 
@@ -2099,13 +2099,18 @@
           }).join('')}
         </div>` : '';
 
-      // Action map
+      // Action map from all_actions (has action + gru_signal for every stock)
+      const allActions = pf.all_actions || [];
       const actionMap = {};
-      (stocks).forEach(s => { actionMap[s.symbol] = s.action; });
+      allActions.forEach(s => { actionMap[s.symbol] = s; });
 
       // Top picks (active positions)
-      const activePicks = positions.filter(p => (actionMap[p.symbol] || '').toUpperCase() !== 'WAIT' && (actionMap[p.symbol] || '').toUpperCase() !== 'EXIT');
-      const otherSymbols = stocks.filter(s => !activePicks.find(p => p.symbol === s.symbol));
+      const activePicks = positions.filter(p => {
+        const a = (actionMap[p.symbol] || {}).action || '';
+        return a.toUpperCase() !== 'WAIT' && a.toUpperCase() !== 'EXIT';
+      });
+      const posSymSet = new Set(activePicks.map(p => p.symbol));
+      const otherSymbols = allActions.filter(s => !posSymSet.has(s.symbol));
 
       const actionColor = a => {
         const u = (a || '').toUpperCase();
@@ -2116,8 +2121,9 @@
       };
 
       const activeHtml = activePicks.length ? activePicks.map((p, i) => {
-        const ac = actionColor(actionMap[p.symbol]);
+        const ac = actionColor((actionMap[p.symbol] || {}).action);
         const barPct = Math.min(100, (p.allocation_pct || 0) / 40 * 100).toFixed(1);
+        const dollarAmt = p.allocation_usd ?? p.amount_usd;
         return `
           <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)">
             <span style="font-family:var(--mono);font-weight:800;font-size:16px;width:56px">${p.symbol}</span>
@@ -2131,7 +2137,7 @@
                 <div style="width:${barPct}%;height:100%;background:var(--amber);border-radius:3px"></div>
               </div>
             </div>
-            <span style="font-family:var(--mono);font-size:13px;text-align:right;min-width:54px">${p.amount_usd != null ? '$' + Math.round(p.amount_usd).toLocaleString() : ''}</span>
+            <span style="font-family:var(--mono);font-size:13px;text-align:right;min-width:54px">${dollarAmt != null ? '$' + Math.round(dollarAmt).toLocaleString() : ''}</span>
           </div>`;
       }).join('') : '<div style="padding:20px 0;color:var(--muted);font-size:13px">No active picks this run.</div>';
 
@@ -2141,8 +2147,9 @@
           <div style="display:flex;flex-wrap:wrap;gap:8px">
             ${otherSymbols.map(s => {
               const ac = actionColor(s.action);
-              const sig = (s.signal || '').toUpperCase() === 'UP' ? '▲' : (s.signal || '').toUpperCase() === 'DOWN' ? '▼' : '–';
-              const sigCol = (s.signal || '').toUpperCase() === 'UP' ? 'var(--green)' : (s.signal || '').toUpperCase() === 'DOWN' ? 'var(--red)' : 'var(--muted)';
+              const rawSig = (s.gru_signal || s.signal || '').toUpperCase();
+              const sig = rawSig === 'UP' ? '▲' : rawSig === 'DOWN' ? '▼' : '–';
+              const sigCol = rawSig === 'UP' ? 'var(--green)' : rawSig === 'DOWN' ? 'var(--red)' : 'var(--muted)';
               return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:12px">
                 <span style="font-family:var(--mono);font-weight:700">${s.symbol}</span>
                 <span style="color:${sigCol};margin:0 4px">${sig}</span>
@@ -2152,13 +2159,14 @@
           </div>
         </div>` : '';
 
-      const cashHtml = pf.cash_held_pct != null
-        ? `<div style="font-size:12px;color:var(--muted);margin-top:12px">Cash held: <span style="font-family:var(--mono);color:var(--text)">${pf.cash_held_pct.toFixed(1)}%</span> of $${(pf.portfolio_size || 100000).toLocaleString()}</div>`
+      const cashPct  = pf.cash_pct ?? pf.cash_held_pct;
+      const cashHtml = cashPct != null
+        ? `<div style="font-size:12px;color:var(--muted);margin-top:12px">Cash held: <span style="font-family:var(--mono);color:var(--text)">${cashPct.toFixed(1)}%</span> of $${(pf.portfolio_size || 100000).toLocaleString()}</div>`
         : '';
 
       el.innerHTML = `
         <div style="font-size:12px;color:var(--muted);margin-bottom:20px;font-family:var(--mono)">
-          Last run: ${ts} &nbsp;·&nbsp; Mode: ${rc.mode || '—'} &nbsp;·&nbsp; Universe: ${stocks.length} stocks &nbsp;·&nbsp; Epochs: ${rc.epochs || '—'}
+          Last run: ${ts} &nbsp;·&nbsp; Profile: ${rc.profile || rc.mode || '—'} &nbsp;·&nbsp; Universe: ${stocks.length} stocks &nbsp;·&nbsp; Epochs: ${rc.epochs || '—'}
         </div>
 
         ${benchHtml}
