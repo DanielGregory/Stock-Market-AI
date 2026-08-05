@@ -2058,66 +2058,39 @@
         </div>
       `).join('');
 
-      // ── Action summary (all stocks) ────────────────────────────────────
+      // ── Action meta ────────────────────────────────────────────────────
       const actionMeta = {
-        HOLD:  { label: 'HOLD',  desc: 'Continue holding',        color: 'var(--green)',   bg: 'rgba(34,197,94,0.1)' },
-        ENTER: { label: 'BUY',   desc: 'Enter new position',      color: '#60a5fa',        bg: 'rgba(96,165,250,0.1)' },
-        EXIT:  { label: 'SELL',  desc: 'Exit position',           color: 'var(--red)',     bg: 'rgba(239,68,68,0.1)' },
-        WAIT:  { label: 'WAIT',  desc: 'Stay out — not bullish',  color: 'var(--muted)',   bg: 'transparent' },
+        HOLD:  { label: 'HOLD', color: 'var(--green)',  bg: 'rgba(34,197,94,0.12)' },
+        ENTER: { label: 'BUY',  color: '#60a5fa',       bg: 'rgba(96,165,250,0.12)' },
+        EXIT:  { label: 'SELL', color: 'var(--red)',     bg: 'rgba(239,68,68,0.08)' },
+        WAIT:  { label: 'WAIT', color: 'var(--muted)',   bg: 'transparent' },
       };
 
-      const actionRows = actions.map(a => {
-        const m       = actionMeta[a.action] || actionMeta.WAIT;
-        const confPct = Math.round(a.confidence * 100);
-        const ret     = a.return_pct  != null ? ((a.return_pct  >= 0 ? '+' : '') + a.return_pct.toFixed(1)  + '%') : '—';
-        const hold    = a.hold_return_pct != null ? ((a.hold_return_pct >= 0 ? '+' : '') + a.hold_return_pct.toFixed(1) + '%') : '—';
-        const retCls  = a.return_pct != null ? (a.return_pct >= 0 ? 'profit-pos' : 'profit-neg') : '';
-        const holdCls = a.hold_return_pct != null ? (a.hold_return_pct >= 0 ? 'profit-pos' : 'profit-neg') : '';
+      // Quick lookup: symbol → action record
+      const actionMap = {};
+      actions.forEach(a => actionMap[a.symbol] = a);
+
+      // ── Section 1: Active positions (the ones the model chose + cash) ──
+      const activeRows = positions.map((p, i) => {
+        const act     = actionMap[p.symbol];
+        const action  = act ? act.action : 'ENTER';
+        const m       = actionMeta[action] || actionMeta.ENTER;
+        const barW    = Math.min((p.allocation_pct / 25) * 100, 100);
+        const confPct = Math.round(p.confidence * 100);
+        const retStr  = p.return_pct != null
+          ? (p.return_pct >= 0 ? '+' : '') + p.return_pct.toFixed(1) + '%' : '—';
+        const retCls  = (p.return_pct ?? 0) >= 0 ? 'profit-pos' : 'profit-neg';
         return `
         <div class="pf-row" style="background:${m.bg};border-radius:6px;margin-bottom:4px;padding:12px 14px">
-          <div class="pf-sym">${a.symbol}</div>
-          <div class="pf-sig" style="background:${m.bg};color:${m.color};border:1px solid ${m.color};width:48px">
-            ${m.label}
-          </div>
-          <div class="pf-bar-wrap">
-            <div class="pf-bar-labels">
-              <span style="color:${m.color};font-weight:600">${m.desc}</span>
-              <span>Confidence <strong>${confPct}%</strong></span>
-            </div>
-          </div>
-          <div class="pf-action-stats" style="display:flex;gap:16px;text-align:right;flex-shrink:0">
-            <div>
-              <div class="stat-label" style="font-size:10px;color:var(--muted);margin-bottom:2px">Strategy</div>
-              <div class="${retCls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${ret}</div>
-            </div>
-            <div>
-              <div class="stat-label" style="font-size:10px;color:var(--muted);margin-bottom:2px">Buy&amp;Hold</div>
-              <div class="${holdCls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${hold}</div>
-            </div>
-          </div>
-        </div>`;
-      }).join('');
-
-      // ── Allocation bars (active positions + cash) ─────────────────────
-      const allocRows = positions.map((p, i) => {
-        const barW      = Math.min((p.allocation_pct / 25) * 100, 100);
-        const confPct   = Math.round(p.confidence * 100);
-        const retStr    = p.return_pct != null
-          ? (p.return_pct >= 0 ? '+' : '') + p.return_pct.toFixed(1) + '%'
-          : '—';
-        const retCls    = (p.return_pct ?? 0) >= 0 ? 'profit-pos' : 'profit-neg';
-        const rankLabel = `#${i + 1}`;
-        return `
-        <div class="pf-row">
-          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);width:20px;flex-shrink:0;text-align:center">${rankLabel}</div>
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);width:20px;flex-shrink:0;text-align:center">#${i+1}</div>
           <div class="pf-sym">${p.symbol}</div>
-          <div class="pf-sig up">▲ UP</div>
+          <div class="pf-sig" style="background:transparent;color:${m.color};border:1px solid ${m.color};width:48px">${m.label}</div>
           <div class="pf-bar-wrap">
             <div class="pf-bar-labels">
               <span>Conf <strong>${confPct}%</strong> · Move <strong>~${p.expected_move_pct.toFixed(1)}%/wk</strong> · Backtest <span class="${retCls}"><strong>${retStr}</strong></span></span>
             </div>
             <div class="pf-bar-bg">
-              <div class="pf-bar-fill" style="width:${barW}%"></div>
+              <div class="pf-bar-fill" style="width:${barW}%;background:${m.color}"></div>
             </div>
           </div>
           <div class="pf-alloc-pct">${p.allocation_pct.toFixed(1)}%</div>
@@ -2141,14 +2114,35 @@
           <div class="pf-alloc-usd" style="color:var(--muted)">$${cashUSD.toLocaleString()}</div>
         </div>` : '';
 
+      // ── Section 2: Everything else (not selected for portfolio) ────────
+      const posSymbols = new Set(positions.map(p => p.symbol));
+      const otherRows = actions
+        .filter(a => !posSymbols.has(a.symbol))
+        .map(a => {
+          const m       = actionMeta[a.action] || actionMeta.WAIT;
+          const confPct = Math.round(a.confidence * 100);
+          const ret     = a.return_pct != null
+            ? (a.return_pct >= 0 ? '+' : '') + a.return_pct.toFixed(1) + '%' : '—';
+          const retCls  = a.return_pct != null ? (a.return_pct >= 0 ? 'profit-pos' : 'profit-neg') : '';
+          return `
+          <div class="pf-row" style="padding:8px 14px;opacity:0.65">
+            <div class="pf-sym" style="font-size:12px">${a.symbol}</div>
+            <div class="pf-sig" style="background:transparent;color:${m.color};border:1px solid ${m.color};width:44px;font-size:10px">${m.label}</div>
+            <div class="pf-bar-wrap">
+              <span style="font-size:11px;color:var(--muted)">Conf ${confPct}% &nbsp;·&nbsp; Backtest <span class="${retCls}">${ret}</span></span>
+            </div>
+            <div class="pf-alloc-pct" style="color:var(--muted);font-size:11px">—</div>
+          </div>`;
+        }).join('');
+
       document.getElementById('pf-positions').innerHTML = `
-        <p class="section-title" style="margin-bottom:16px">This Week's Actions</p>
-        <div style="margin-bottom:24px">
-          ${actionRows || '<div style="padding:16px;color:var(--muted);font-size:13px">No action data available.</div>'}
+        <p class="section-title" style="margin-bottom:12px">Active Positions</p>
+        <div style="margin-bottom:32px">
+          ${activeRows + cashRow || '<div style="padding:16px;color:var(--muted);font-size:13px">No UP signals — 100% cash.</div>'}
         </div>
-        <p class="section-title" style="margin-bottom:16px">Capital Allocation</p>
+        <p class="section-title" style="margin-bottom:12px;opacity:0.55;font-size:11px;letter-spacing:.08em">ALL OTHER SIGNALS</p>
         <div>
-          ${allocRows + cashRow || '<div style="padding:16px;color:var(--muted);font-size:13px">No UP signals — 100% cash.</div>'}
+          ${otherRows || '<div style="padding:8px 14px;color:var(--muted);font-size:12px">No other signals.</div>'}
         </div>`;
     }
   </script>
