@@ -55,6 +55,10 @@ parser.add_argument(
     "--steps", type=int, default=2000,
     help="RL training timesteps (default: 2000, full run uses 8000)"
 )
+parser.add_argument(
+    "--mode", choices=["train", "infer"], default="train",
+    help="'train' does full retrain; 'infer' adds one data point to saved models (~3-5 min)"
+)
 args = parser.parse_args()
 
 # ── Patch hyperparameters before importing the pipeline ───────────────────────
@@ -71,6 +75,21 @@ DEMO_GRU_DIR = "Demo_Models/GRU"
 DEMO_SGD_DIR = "Demo_Models/SGD"
 DEMO_RL_DIR  = "Demo_Models/RL"
 
+# In infer mode, carry over backtest metrics from the last full-train run so
+# the dashboard doesn't lose historical accuracy figures.
+_prev_results_map = {}
+if args.mode == "infer":
+    _prev_json = os.path.join("web", "data", "results.json")
+    if os.path.exists(_prev_json):
+        try:
+            with open(_prev_json) as _pf:
+                _prev_data = json.load(_pf)
+            for _r in _prev_data.get("results", []):
+                _prev_results_map[_r["symbol"]] = _r
+            print(f"  Loaded {len(_prev_results_map)} previous results for carry-over.")
+        except Exception as _e:
+            print(f"  Warning: could not load previous results: {_e}")
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def banner(text, width=60, char="="):
@@ -83,12 +102,204 @@ def section(text):
     print(f"  {text}")
     print(f"  {'─' * 50}")
 
+
+def _try_infer(symbol, prev_map):
+    """
+    Fast inference path — no retraining.
+
+    Loads the six saved model artifacts for *symbol*, fetches ~120 days of
+    data, runs a GRU forward pass + SGD partial_fit on the newly resolved
+    5-day label + a single RL observation, and returns a result row.
+
+    Falls back to None (triggering a full train) if any artifact is missing
+    or any step raises an exception.
+    """
+    import pickle as _pickle
+    import numpy as _np
+    import torch as _torch
+    import pandas as _pd
+
+    gru_model_path  = os.path.join(DEMO_GRU_DIR, f"{symbol}_gru.pt")
+    gru_scaler_path = os.path.join(DEMO_GRU_DIR, f"{symbol}_gru_scaler.pkl")
+    gru_meta_path   = os.path.join(DEMO_GRU_DIR, f"{symbol}_gru_meta.json")
+    sgd_model_path  = os.path.join(DEMO_SGD_DIR, f"{symbol}_combined_sgd.pkl")
+    sgd_scaler_path = os.path.join(DEMO_SGD_DIR, f"{symbol}_sgd_scaler.pkl")
+    rl_model_path   = os.path.join(DEMO_RL_DIR,  f"{symbol}_combined_ppo.zip")
+
+    for path in [gru_model_path, gru_scaler_path, gru_meta_path,
+                 sgd_model_path, sgd_scaler_path, rl_model_path]:
+        if not os.path.exists(path):
+            print(f"  [INFER] {symbol}: missing {os.path.basename(path)}, will train.")
+            return None
+
+    try:
+        # ── Fetch & engineer features ──────────────────────────────────────
+        bars_df = pipeline.fetch_historical_data(symbol, days=120)
+        time.sleep(0.5)
+        if bars_df.empty:
+            return None
+        data = pipeline.add_features(bars_df)
+        if len(data) < pipeline.SEQUENCE_LENGTH + 10:
+            return None
+        data = pipeline.add_sentiment(data, symbol)
+
+        for col in pipeline.BASE_FEATURES:
+            if col not in data.columns:
+                data[col] = 0.0
+
+        # ── GRU forward pass (no weight updates) ──────────────────────────
+        device = _torch.device("cpu")
+        with open(gru_scaler_path, 'rb') as f:
+            gru_scaler = _pickle.load(f)
+        with open(gru_meta_path) as f:
+            gru_meta = json.load(f)
+
+        X_all = gru_scaler.transform(data[pipeline.BASE_FEATURES].values)
+
+        gru_model = pipeline.GRUModel(input_size=len(pipeline.BASE_FEATURES)).to(device)
+        gru_model.load_state_dict(_torch.load(gru_model_path, map_location=device))
+        gru_model.eval()
+
+        seqs = _np.array([
+            X_all[i - pipeline.SEQUENCE_LENGTH:i]
+            for i in range(pipeline.SEQUENCE_LENGTH, len(X_all))
+        ])
+        with _torch.no_grad():
+            raw_probs = gru_model(
+                _torch.tensor(seqs, dtype=_torch.float32)
+            ).squeeze().cpu().numpy()
+        if raw_probs.ndim == 0:
+            raw_probs = _np.array([float(raw_probs)])
+
+        if gru_meta.get("inverted", False):
+            raw_probs = 1.0 - raw_probs
+
+        gru_prob = float(raw_probs[-1])
+
+        # EMA-3 of the most recent gru_prob values (mirrors training behaviour)
+        recent = raw_probs[-10:] if len(raw_probs) >= 10 else raw_probs
+        ema_val = float(recent[0])
+        alpha_ema = 2.0 / (3 + 1)
+        for p in recent[1:]:
+            ema_val = alpha_ema * float(p) + (1 - alpha_ema) * ema_val
+        gru_prob_ema3 = ema_val
+
+        # Attach gru columns so EXTENDED_FEATURES is fully populated
+        gru_prob_col = _np.full(len(data), _np.nan)
+        for i, p in enumerate(raw_probs):
+            gru_prob_col[pipeline.SEQUENCE_LENGTH + i] = p
+        data = data.copy()
+        data['gru_prob']      = gru_prob_col
+        data['gru_prob_ema3'] = data['gru_prob'].ewm(span=3, adjust=False).mean()
+
+        for col in pipeline.EXTENDED_FEATURES:
+            if col not in data.columns:
+                data[col] = 0.0
+
+        data_valid = data.dropna(subset=['gru_prob'])
+        if len(data_valid) < 6:
+            return None
+
+        current_row = data_valid.iloc[-1]
+        old_row     = data_valid.iloc[-6]   # ~5 business days ago
+
+        # ── SGD: partial_fit on newly resolved 5-day label ────────────────
+        with open(sgd_scaler_path, 'rb') as f:
+            sgd_scaler = _pickle.load(f)
+        with open(sgd_model_path, 'rb') as f:
+            sgd_model = _pickle.load(f)
+
+        true_label = int(float(current_row['Close']) > float(old_row['Close']))
+        X_old = sgd_scaler.transform(
+            old_row[pipeline.EXTENDED_FEATURES].values.reshape(1, -1)
+        )
+        try:
+            sgd_model.partial_fit(X_old, [true_label], classes=[0, 1])
+        except Exception:
+            pass
+
+        with open(sgd_model_path, 'wb') as f:
+            _pickle.dump(sgd_model, f)
+
+        X_cur    = sgd_scaler.transform(
+            current_row[pipeline.EXTENDED_FEATURES].values.reshape(1, -1)
+        )
+        sgd_pred = int(sgd_model.predict(X_cur)[0])
+        raw_conf = float(sgd_model.decision_function(X_cur)[0])
+        sgd_conf = float(1.0 / (1.0 + _np.exp(-raw_conf)))
+
+        # ── RL: single observation → action ───────────────────────────────
+        from stable_baselines3 import PPO as _PPO
+        rl_model = _PPO.load(rl_model_path)
+
+        prev         = prev_map.get(symbol, {})
+        prev_sig     = prev.get("last_signal", "FLAT")
+        position     = 1 if prev_sig in ("BUY", "HOLD") else 0
+        hold_streak  = 0
+
+        rl_feats = []
+        for col in pipeline.RL_FEATURES:
+            if col == 'sgd_conf':
+                rl_feats.append(sgd_conf)
+            else:
+                val = current_row.get(col, 0.0)
+                rl_feats.append(float(val) if not _pd.isna(val) else 0.0)
+        obs = _np.array(rl_feats + [float(position), float(hold_streak)],
+                        dtype=_np.float32)
+        rl_action, _ = rl_model.predict(obs, deterministic=True)
+        rl_action    = int(rl_action)
+
+        if   rl_action == 1 and position == 0: new_last_signal = "BUY"
+        elif rl_action == 1 and position == 1: new_last_signal = "HOLD"
+        elif rl_action == 0 and position == 1: new_last_signal = "SELL"
+        else:                                  new_last_signal = "FLAT"
+
+        current_price = float(current_row['Close'])
+        row_atr = float(current_row.get('ATR_14', 0) or 0)
+        row_adx = float(current_row.get('ADX_14', 25) or 25)
+
+        row = {
+            "Symbol":        symbol,
+            "GRU Acc %":     prev.get("gru_accuracy", 50.0),
+            "GRU Signal":    "UP  " if gru_prob >= 0.5 else "DOWN",
+            "GRU Prob":      round(gru_prob, 3),
+            "SGD Acc %":     prev.get("sgd_accuracy", 50.0),
+            "SGD Acc-10 %":  prev.get("sgd_accuracy_10", 50.0),
+            "RL Win Rate %": prev.get("rl_win_rate", 50.0),
+            "Backtest $":    prev.get("backtest_profit", 0),
+            "Return %":      prev.get("return_pct", 0),
+            "Hold Return %": prev.get("hold_return_pct", 0),
+            "Alpha %":       prev.get("alpha_pct", 0),
+            "Allocation $":  prev.get("starting_allocation", 0),
+            "Qty":           prev.get("quantity", 0),
+            "Buys":          prev.get("n_buys", 0),
+            "Holds":         prev.get("n_holds", 0),
+            "Sells":         prev.get("n_sells", 0),
+            "Avg Hold (wk)": prev.get("avg_hold_weeks", 0),
+            "chart_data":    prev.get("chart_data"),
+            "current_price": round(current_price, 2),
+            "ATR_14":        row_atr,
+            "ADX_14":        row_adx,
+            "last_signal":   new_last_signal,
+        }
+        print(f"  [INFER] {symbol}: GRU={gru_prob:.3f}→{'UP' if gru_prob >= 0.5 else 'DN'}"
+              f" SGD={sgd_pred} RL={'LONG' if rl_action else 'FLAT'}"
+              f" sig={new_last_signal} price=${current_price:.2f}")
+        return row
+
+    except Exception as _e:
+        print(f"  [INFER] {symbol} failed ({_e}), falling back to full train.")
+        return None
+
+
 # ── Main demo ─────────────────────────────────────────────────────────────────
 
 banner("STOCK MARKET AI — DEMO")
+print(f"  Mode          : {args.mode.upper()}")
 print(f"  Symbols : {' '.join(args.symbols)}")
-print(f"  GRU epochs    : {args.epochs}  (full pipeline uses 30)")
-print(f"  RL timesteps  : {DEMO_RL_STEPS}  (full pipeline uses 8000)")
+if args.mode == "train":
+    print(f"  GRU epochs    : {args.epochs}  (full pipeline uses 30)")
+    print(f"  RL timesteps  : {DEMO_RL_STEPS}  (full pipeline uses 8000)")
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -113,6 +324,15 @@ failed = []
 for symbol in args.symbols:
     banner(f"Processing: {symbol}", char="-")
     t0 = time.time()
+
+    # ── Fast inference path (skips retraining) ────────────────────────────
+    if args.mode == "infer":
+        infer_row = _try_infer(symbol, _prev_results_map)
+        if infer_row is not None:
+            all_results.append(infer_row)
+            print(f"  Done in {time.time() - t0:.0f}s  [infer mode]")
+            continue
+        print(f"  Falling back to full train for {symbol}...")
 
     try:
         # ── Fetch & engineer features ──────────────────────────────────────

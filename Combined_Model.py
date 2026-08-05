@@ -14,6 +14,7 @@ Stage 3 (RL):   The PPO agent's observation space is expanded to include both
 """
 
 import copy
+import json
 import os
 import pickle
 import time as tm
@@ -436,10 +437,12 @@ def run_gru_stage(data, symbol, model_dir):
         all_probs = model(all_seqs).squeeze().cpu().numpy()
 
     # Flip check 1: if training signal is inverted, correct it.
+    net_inverted = False
     train_acc = accuracy_score(y_seq[:-n_test], (all_probs[:-n_test] >= 0.5).astype(int))
     if train_acc < 0.5:
         print(f"  [GRU] Train signal inverted ({train_acc:.2f}) — flipping.")
         all_probs = 1.0 - all_probs
+        net_inverted = not net_inverted
 
     # Flip check 2: if test accuracy is still inverted (e.g. distribution shift
     # between train and test), flip again so displayed accuracy is always ≥ 50%
@@ -449,6 +452,13 @@ def run_gru_stage(data, symbol, model_dir):
         print(f"  [GRU] Test signal still inverted ({gru_accuracy:.2f}) — flipping again.")
         all_probs = 1.0 - all_probs
         gru_accuracy = 1.0 - gru_accuracy
+        net_inverted = not net_inverted
+
+    # Persist the net inversion state so inference-only mode can reproduce the
+    # same probability orientation without rerunning the full training flip logic.
+    meta_path = os.path.join(model_dir, f"{symbol}_gru_meta.json")
+    with open(meta_path, 'w') as _mf:
+        json.dump({"inverted": net_inverted}, _mf)
 
     next_prob = float(all_probs[-1])
     print(f"  [GRU] Accuracy: {gru_accuracy:.2f} | Next prob: {next_prob:.3f}")
@@ -489,6 +499,11 @@ def run_sgd_stage(data, symbol, model_dir):
     scaler = StandardScaler()
     X_train_s = scaler.fit_transform(X_train)
     X_test_s  = scaler.transform(X_test)
+    # Persist scaler so inference-only mode can scale new observations
+    # without refitting on the full history.
+    sgd_scaler_path = os.path.join(model_dir, f"{symbol}_sgd_scaler.pkl")
+    with open(sgd_scaler_path, 'wb') as _sf:
+        pickle.dump(scaler, _sf)
 
     best_cv_f1 = 0.0
 

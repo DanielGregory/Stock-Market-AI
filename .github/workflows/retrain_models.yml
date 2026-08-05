@@ -1,16 +1,16 @@
-name: Update Dashboard Results
+name: Weekly Model Retrain
 
 on:
   schedule:
-    # Runs every day at 06:00 UTC (after US market open data is available)
-    - cron: '0 6 * * 1-5'
+    # Runs every Sunday at 02:00 UTC (outside US market hours)
+    - cron: '0 2 * * 0'
   workflow_dispatch:  # allow manual trigger from GitHub UI
 
 permissions:
   contents: write
 
 jobs:
-  run-models:
+  retrain:
     runs-on: ubuntu-latest
 
     steps:
@@ -32,13 +32,13 @@ jobs:
           git checkout origin/main -- Demo_Models/ 2>/dev/null || echo "No cached models yet — training fresh"
           git checkout origin/main -- web/data/predictions_log.json 2>/dev/null || echo "No prediction log yet — starting fresh"
 
-      - name: Run demo pipeline (infer mode — fast daily update)
+      - name: Full retrain (--mode train)
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           PORTFOLIO_SIZE: 100000
         run: |
           python demo.py \
-            --mode infer \
+            --mode train \
             --symbols \
               AAPL MSFT GOOGL AMZN META NVDA AVGO ORCL \
               AMD QCOM CRM NFLX INTC \
@@ -54,12 +54,12 @@ jobs:
             --epochs 30 \
             --steps 8000
 
-      - name: Commit updated results
+      - name: Commit updated models and results
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add web/data/results.json web/data/predictions_log.json demo_results.xlsx
           git add Demo_Models/ 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "chore: update dashboard results [skip ci]"
+          git diff --cached --quiet || git commit -m "chore: weekly model retrain [skip ci]"
           git pull --rebase origin main
           git push origin main
