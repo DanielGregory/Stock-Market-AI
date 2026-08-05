@@ -22,13 +22,28 @@ parser = argparse.ArgumentParser(description="Stock Market AI — Demo")
 parser.add_argument(
     "--symbols", nargs="+",
     default=[
-        # Core focused list — bull-run capture stocks
-        "AMD", "MU", "CRWD", "NVDA", "PLTR", "COIN", "NFLX", "AAPL",
-        "GLW", "NBIS", "SPMO",
-        # Commented out for faster runs — re-enable to expand coverage
-        # "MSFT", "GOOGL", "AMZN", "META",
-        # "AVGO", "TSLA", "CRM",
-        # "JPM", "GS", "LLY", "BA", "UBER",
+        # Tech — mega-cap
+        "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "AVGO", "ORCL",
+        # Tech — growth / mid
+        "AMD", "QCOM", "CRM", "NFLX", "INTC",
+        # Semis / hardware
+        "MU", "GLW",
+        # Cybersecurity / fintech / speculative
+        "CRWD", "PLTR", "COIN", "NBIS",
+        # Financials
+        "JPM", "GS", "V", "MA", "BAC", "MS",
+        # Healthcare
+        "LLY", "UNH", "JNJ", "ABBV", "MRK",
+        # Consumer discretionary
+        "TSLA", "HD", "MCD", "NKE", "COST",
+        # Consumer staples
+        "WMT", "PG", "KO",
+        # Energy
+        "XOM", "CVX",
+        # Industrials
+        "CAT", "HON", "GE", "BA",
+        # Momentum ETF
+        "SPMO",
     ],
     help="Stock ticker symbols to run"
 )

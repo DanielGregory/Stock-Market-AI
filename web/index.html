@@ -434,10 +434,12 @@
       footer  { padding: 14px; flex-direction: column; gap: 6px; }
       .disclaimer { margin-left: 0; }
 
-      /* Pipeline: vertical stack with rotated arrow */
-      .pipeline       { flex-direction: column; padding: 14px 16px; gap: 0; }
-      .stage          { padding: 6px 16px; }
-      .arrow          { transform: rotate(90deg); line-height: 1; padding: 2px 0; }
+      /* Pipeline: compact horizontal strip on mobile */
+      .pipeline       { padding: 10px 12px; gap: 0; flex-wrap: nowrap; }
+      .stage          { padding: 4px 6px; }
+      .stage-box      { padding: 6px 10px; font-size: 11px; }
+      .stage-label    { display: none; }
+      .arrow          { font-size: 14px; padding: 0 2px; }
 
       /* Cards: 2-column grid */
       .grid           { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 24px; }
@@ -1281,23 +1283,41 @@
           <button class="toggle-btn" id="log-btn">Show</button>
         </div>
         <div class="log-body" id="log-body">
-          <div style="overflow-x:auto">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;margin-top:6px">
+            <select id="log-filter-sym" onchange="applyLogFilter()" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+              <option value="">All Symbols</option>
+            </select>
+            <select id="log-filter-type" onchange="applyLogFilter()" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+              <option value="">All Types</option>
+              <option value="backtest">Backtest only</option>
+              <option value="live">Live only</option>
+            </select>
+            <select id="log-filter-sig" onchange="applyLogFilter()" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+              <option value="">All Signals</option>
+              <option value="UP">UP only</option>
+              <option value="DOWN">DOWN only</option>
+            </select>
+            <span id="log-count" style="font-size:12px;color:var(--muted);align-self:center"></span>
+          </div>
+          <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
             <table class="log-table" id="log-table">
-              <thead>
+              <thead style="position:sticky;top:0;z-index:2;background:var(--surface)">
                 <tr>
                   <th>Date</th>
                   <th>Symbol</th>
+                  <th>Type</th>
                   <th>Signal</th>
                   <th>Confidence</th>
                   <th>Price</th>
-                  <th>Outcome (5d later)</th>
+                  <th>Outcome</th>
                 </tr>
               </thead>
               <tbody id="log-body-rows"></tbody>
             </table>
           </div>
           <p style="font-size:11px;color:var(--muted);margin-top:10px">
-            Each row is one weekly model decision. Outcome resolves 5 trading days after the signal date.
+            <strong>BACKTEST</strong> entries are historical model decisions on test-set data.
+            <strong>LIVE</strong> entries are forward predictions recorded each daily run — outcome resolves 5 trading days after signal date.
           </p>
         </div>
       </div>
@@ -1535,7 +1555,7 @@
 
       // Portfolio tab
       renderPortfolio(data.portfolio);
-      renderTradeLog(data.recent_predictions);
+      renderTradeLog(data.recent_predictions, results);
 
       // Table
       const tbody = document.getElementById('results-body');
@@ -1849,36 +1869,114 @@
     }
 
     // ── Trade log rendering ────────────────────────────────────────────────────
-    function renderTradeLog(preds) {
-      const rows = (preds || []);
-      if (!rows.length) {
+    let _logAllRows = [];  // full combined log — filtered/rendered by applyLogFilter()
+
+    function renderTradeLog(preds, results) {
+      // ── 1. Build backtest entries from chart_data ──────────────────────────
+      const backtestRows = [];
+      (results || []).forEach(r => {
+        const cd = r.chart_data;
+        if (!cd || !cd.dates || !cd.signals) return;
+        const dates   = cd.dates;
+        const signals = cd.signals;
+        const prices  = cd.prices || [];
+        for (let i = 0; i < dates.length; i++) {
+          const sig = signals[i];
+          if (!sig) continue;
+          // Map chart signal → UP / DOWN
+          const direction = (sig === 'BUY' || sig === 'HOLD') ? 'UP' : 'DOWN';
+          backtestRows.push({
+            date:   dates[i],
+            symbol: r.symbol,
+            type:   'backtest',
+            signal: direction,
+            rawSig: sig,
+            price:  prices[i] != null ? prices[i] : null,
+            conf:   null,   // not stored per-step in chart_data
+            correct:    null,
+            outcome_date: null,
+          });
+        }
+      });
+
+      // ── 2. Build live (forward prediction) entries ─────────────────────────
+      const liveRows = (preds || []).map(r => ({
+        date:         r.run_date,
+        symbol:       r.symbol,
+        type:         'live',
+        signal:       r.gru_signal,
+        rawSig:       r.gru_signal,
+        price:        r.price_at_prediction,
+        conf:         r.gru_prob,
+        correct:      r.correct,
+        outcome_date: r.outcome_date,
+        outcome_price: r.outcome_price,
+        price_at_prediction: r.price_at_prediction,
+      }));
+
+      // ── 3. Merge and sort newest-first ─────────────────────────────────────
+      _logAllRows = [...backtestRows, ...liveRows].sort((a, b) =>
+        (b.date || '').localeCompare(a.date || '')
+      );
+
+      // ── 4. Populate symbol filter ──────────────────────────────────────────
+      const symSel = document.getElementById('log-filter-sym');
+      const syms = [...new Set(_logAllRows.map(r => r.symbol))].sort();
+      symSel.innerHTML = '<option value="">All Symbols</option>' +
+        syms.map(s => `<option value="${s}">${s}</option>`).join('');
+
+      applyLogFilter();
+    }
+
+    function applyLogFilter() {
+      const symVal  = (document.getElementById('log-filter-sym')?.value  || '').trim();
+      const typeVal = (document.getElementById('log-filter-type')?.value || '').trim();
+      const sigVal  = (document.getElementById('log-filter-sig')?.value  || '').trim();
+
+      const filtered = _logAllRows.filter(r => {
+        if (symVal  && r.symbol !== symVal)  return false;
+        if (typeVal && r.type   !== typeVal) return false;
+        if (sigVal  && r.signal !== sigVal)  return false;
+        return true;
+      });
+
+      document.getElementById('log-count').textContent =
+        `${filtered.length.toLocaleString()} entries`;
+
+      if (!filtered.length) {
         document.getElementById('log-body-rows').innerHTML =
-          '<tr><td colspan="6" style="color:var(--muted);padding:16px;text-align:center">No log entries yet — predictions are recorded each daily run.</td></tr>';
+          '<tr><td colspan="7" style="color:var(--muted);padding:16px;text-align:center">No entries match the current filters.</td></tr>';
         return;
       }
 
-      // Group by run_date so same-day entries collapse visually
-      let lastDate = null;
-      document.getElementById('log-body-rows').innerHTML = rows.map(r => {
-        const isNewDate = r.run_date !== lastDate;
-        lastDate = r.run_date;
-        const dateCell = isNewDate
-          ? `<td rowspan="1" style="white-space:nowrap">${r.run_date}</td>`
-          : `<td style="color:transparent;font-size:0;padding:0 10px">·</td>`;
+      document.getElementById('log-body-rows').innerHTML = filtered.map(r => {
+        const sigCls  = r.signal === 'UP' ? 'log-sig-up' : 'log-sig-down';
+        const sigIcon = r.signal === 'UP' ? '▲ UP' : '▼ DOWN';
 
-        const sigCls  = r.gru_signal === 'UP' ? 'log-sig-up' : 'log-sig-down';
-        const sigIcon = r.gru_signal === 'UP' ? '▲ UP' : '▼ DOWN';
-        const confPct = r.gru_prob != null ? Math.round(Math.abs(r.gru_prob - 0.5) * 200) + '%' : '—';
-        const price   = r.price_at_prediction != null
-          ? '$' + r.price_at_prediction.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+        const typeBadge = r.type === 'live'
+          ? `<td><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#1d4ed8;color:#fff;font-weight:600">LIVE</span></td>`
+          : `<td><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--border);color:var(--muted);font-weight:600">BACKTEST</span></td>`;
+
+        const confPct = r.conf != null
+          ? Math.round(Math.abs(r.conf - 0.5) * 200) + '%'
+          : (r.rawSig ? '—' : '—');
+
+        const priceStr = r.price != null
+          ? '$' + Number(r.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
           : '—';
 
         let outCell;
-        if (r.correct === null || r.correct === undefined) {
-          outCell = `<td class="log-pending">Pending (resolves ${r.outcome_date || '…'})</td>`;
+        if (r.type === 'backtest') {
+          // For backtest entries show the raw signal label (BUY/HOLD/SELL/FLAT)
+          const labelCls = (r.rawSig === 'BUY' || r.rawSig === 'HOLD') ? 'log-sig-up' : 'log-sig-down';
+          outCell = `<td class="${labelCls}" style="font-size:11px">${r.rawSig || '—'}</td>`;
+        } else if (r.correct === null || r.correct === undefined) {
+          outCell = `<td class="log-pending">Pending${r.outcome_date ? ' ' + r.outcome_date : ''}</td>`;
         } else {
-          const move = r.outcome_price != null && r.price_at_prediction != null
-            ? ((r.outcome_price - r.price_at_prediction) / r.price_at_prediction * 100).toFixed(1) + '%'
+          const pAtP = r.price_at_prediction;
+          const pOut = r.outcome_price;
+          const move = (pAtP && pOut)
+            ? ((pOut - pAtP) / pAtP * 100).toFixed(1) + '%'
             : '';
           const moveCls = parseFloat(move) >= 0 ? 'profit-pos' : 'profit-neg';
           outCell = r.correct
@@ -1887,11 +1985,12 @@
         }
 
         return `<tr>
-          ${dateCell}
+          <td style="white-space:nowrap;font-family:var(--mono);font-size:11px;color:var(--muted)">${r.date || '—'}</td>
           <td class="log-sym">${r.symbol}</td>
+          ${typeBadge}
           <td class="${sigCls}">${sigIcon}</td>
           <td>${confPct}</td>
-          <td style="font-family:var(--mono)">${price}</td>
+          <td style="font-family:var(--mono)">${priceStr}</td>
           ${outCell}
         </tr>`;
       }).join('');

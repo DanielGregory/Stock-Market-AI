@@ -38,7 +38,18 @@ jobs:
           PORTFOLIO_SIZE: 100000
         run: |
           python demo.py \
-            --symbols AMD MU CRWD NVDA PLTR COIN NFLX AAPL GLW NBIS SPMO \
+            --symbols \
+              AAPL MSFT GOOGL AMZN META NVDA AVGO ORCL \
+              AMD QCOM CRM NFLX INTC \
+              MU GLW \
+              CRWD PLTR COIN NBIS \
+              JPM GS V MA BAC MS \
+              LLY UNH JNJ ABBV MRK \
+              TSLA HD MCD NKE COST \
+              WMT PG KO \
+              XOM CVX \
+              CAT HON GE BA \
+              SPMO \
             --epochs 30 \
             --steps 8000
 
