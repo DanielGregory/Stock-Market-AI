@@ -928,6 +928,12 @@
 
     /* ── Mobile responsive ──────────────────────────────────────── */
     @media (max-width: 600px) {
+      /* KPI cards: 2×2 grid */
+      .pf-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+      .pf-card { padding: 12px 14px; min-width: 0; }
+      .pf-card-value { font-size: 17px; }
+      .pf-card-label { font-size: 10px; }
+      /* allocation rows */
       .pf-row { flex-wrap: wrap; gap: 6px 10px; }
       .pf-bar-wrap { flex-basis: 100%; order: 4; }
       .pf-alloc-usd { display: none; }
@@ -2093,16 +2099,22 @@
       }).join('');
 
       // ── Allocation bars (active positions + cash) ─────────────────────
-      const allocRows = positions.map(p => {
-        const barW    = Math.min((p.allocation_pct / 25) * 100, 100);
-        const confPct = Math.round(p.confidence * 100);
+      const allocRows = positions.map((p, i) => {
+        const barW      = Math.min((p.allocation_pct / 25) * 100, 100);
+        const confPct   = Math.round(p.confidence * 100);
+        const retStr    = p.return_pct != null
+          ? (p.return_pct >= 0 ? '+' : '') + p.return_pct.toFixed(1) + '%'
+          : '—';
+        const retCls    = (p.return_pct ?? 0) >= 0 ? 'profit-pos' : 'profit-neg';
+        const rankLabel = `#${i + 1}`;
         return `
         <div class="pf-row">
+          <div style="font-size:10px;color:var(--muted);font-family:var(--mono);width:20px;flex-shrink:0;text-align:center">${rankLabel}</div>
           <div class="pf-sym">${p.symbol}</div>
           <div class="pf-sig up">▲ UP</div>
           <div class="pf-bar-wrap">
             <div class="pf-bar-labels">
-              <span>Conf <strong>${confPct}%</strong> · Expected move <strong>~${p.expected_move_pct.toFixed(1)}%/wk</strong></span>
+              <span>Conf <strong>${confPct}%</strong> · Move <strong>~${p.expected_move_pct.toFixed(1)}%/wk</strong> · Backtest <span class="${retCls}"><strong>${retStr}</strong></span></span>
             </div>
             <div class="pf-bar-bg">
               <div class="pf-bar-fill" style="width:${barW}%"></div>

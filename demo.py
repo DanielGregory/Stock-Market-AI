@@ -249,11 +249,12 @@ for symbol in args.symbols:
 
 # ── Portfolio allocation ──────────────────────────────────────────────────────
 
-def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0):
+def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positions=10):
     """
-    Score UP-signal stocks by confidence × expected_move, cap at cap_pct%.
-    Also produces per-stock action labels (HOLD/ENTER/EXIT/WAIT) and a
-    weighted historical portfolio return from the backtest period.
+    Pick the top max_positions UP-signal stocks ranked by a combined score:
+      confidence × expected_move × (1 + strategy_return_boost)
+    Allocate proportionally to score, iterative 25%-cap redistribution.
+    Also produces per-stock action labels (HOLD/ENTER/EXIT/WAIT).
     """
     def _confidence(r):
         gru_prob = float(r["GRU Prob"])
@@ -263,25 +264,36 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0):
                 + 0.3 * max(0.0, (sgd_acc - 0.5) * 2)
                 + 0.2 * min(adx / 50.0, 1.0))
 
-    # ── Build candidates for allocation (UP signals only) ──────────────────
-    candidates = []
+    # ── Score every UP-signal stock ────────────────────────────────────────
+    scored = []
     for r in results:
         if r["GRU Signal"].strip() != "UP":
             continue
-        gru_prob  = float(r["GRU Prob"])
-        atr       = float(r.get("ATR_14") or 0)
-        price     = float(r["current_price"])
-        conf      = _confidence(r)
-        exp_move  = (atr / price * 100) if price > 0 else 0
-        raw_score = conf * max(exp_move, 0.5)
-        candidates.append({
+        gru_prob     = float(r["GRU Prob"])
+        atr          = float(r.get("ATR_14") or 0)
+        price        = float(r["current_price"])
+        conf         = _confidence(r)
+        exp_move     = (atr / price * 100) if price > 0 else 0
+        return_pct   = float(r.get("Return %") or 0)
+        hold_ret_pct = float(r.get("Hold Return %") or 0)
+        # Boost by positive backtest return — penalise stocks where model
+        # underperformed (return_pct < 0 clips to 0, so no negative boost)
+        return_boost = max(return_pct, 0) / 100.0
+        raw_score    = conf * max(exp_move, 0.5) * (1 + return_boost)
+        scored.append({
             "symbol":            r["Symbol"],
             "signal":            "UP",
             "gru_prob":          round(gru_prob, 3),
             "confidence":        round(conf, 3),
             "expected_move_pct": round(exp_move, 2),
+            "return_pct":        round(return_pct, 1),
+            "hold_return_pct":   round(hold_ret_pct, 1),
             "raw_score":         raw_score,
         })
+
+    # ── Keep only top max_positions by combined score ──────────────────────
+    scored.sort(key=lambda x: x["raw_score"], reverse=True)
+    candidates = scored[:max_positions]
 
     # ── Normalize to 100%, iterative 25%-cap redistribution ───────────────
     allocs = {}
