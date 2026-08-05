@@ -60,6 +60,10 @@ parser.add_argument(
     "--mode", choices=["train", "infer"], default="train",
     help="'train' does full retrain; 'infer' adds one data point to saved models (~3-5 min)"
 )
+parser.add_argument(
+    "--profile", choices=["conservative", "aggressive"], default="conservative",
+    help="'conservative' = default balanced model; 'aggressive' = concentrated high-volatility test sandbox"
+)
 args = parser.parse_args()
 
 # ── Patch hyperparameters before importing the pipeline ───────────────────────
@@ -72,15 +76,31 @@ pipeline.GRU_EPOCHS = args.epochs
 pipeline.BATCH_SIZE = 16  # smaller batches for small datasets
 
 DEMO_RL_STEPS = args.steps
-DEMO_GRU_DIR = "Demo_Models/GRU"
-DEMO_SGD_DIR = "Demo_Models/SGD"
-DEMO_RL_DIR  = "Demo_Models/RL"
+
+# ── Profile configuration ─────────────────────────────────────────────────────
+# Aggressive profile: concentrated, high-volatility, shorter hold, heavier
+# expected-move weighting. Completely isolated from the conservative run.
+if args.profile == "aggressive":
+    DEMO_GRU_DIR    = "Aggressive_Models/GRU"
+    DEMO_SGD_DIR    = "Aggressive_Models/SGD"
+    DEMO_RL_DIR     = "Aggressive_Models/RL"
+    RESULTS_PATH    = os.path.join("web", "data", "results_aggressive.json")
+    PROFILE_MAX_POS = 5       # concentrated — fewer, bigger bets
+    PROFILE_CAP_PCT = 40.0    # higher per-position cap
+    pipeline.HOLD_PERIOD = 3  # 3-day hold → more active
+else:
+    DEMO_GRU_DIR    = "Demo_Models/GRU"
+    DEMO_SGD_DIR    = "Demo_Models/SGD"
+    DEMO_RL_DIR     = "Demo_Models/RL"
+    RESULTS_PATH    = os.path.join("web", "data", "results.json")
+    PROFILE_MAX_POS = 10
+    PROFILE_CAP_PCT = 25.0
 
 # In infer mode, carry over backtest metrics from the last full-train run so
 # the dashboard doesn't lose historical accuracy figures.
 _prev_results_map = {}
 if args.mode == "infer":
-    _prev_json = os.path.join("web", "data", "results.json")
+    _prev_json = RESULTS_PATH
     if os.path.exists(_prev_json):
         try:
             with open(_prev_json) as _pf:
@@ -297,6 +317,7 @@ def _try_infer(symbol, prev_map):
 
 banner("STOCK MARKET AI — DEMO")
 print(f"  Mode          : {args.mode.upper()}")
+print(f"  Profile       : {args.profile.upper()}")
 print(f"  Symbols : {' '.join(args.symbols)}")
 if args.mode == "train":
     print(f"  GRU epochs    : {args.epochs}  (full pipeline uses 30)")
@@ -470,12 +491,15 @@ for symbol in args.symbols:
 
 # ── Portfolio allocation ──────────────────────────────────────────────────────
 
-def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positions=10):
+def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positions=10,
+                       aggressive=False):
     """
-    Pick the top max_positions UP-signal stocks ranked by a combined score:
-      confidence × expected_move × (1 + strategy_return_boost)
-    Allocate proportionally to score, iterative 25%-cap redistribution.
-    Also produces per-stock action labels (HOLD/ENTER/EXIT/WAIT).
+    Pick the top max_positions UP-signal stocks ranked by a combined score.
+
+    Conservative: conf × exp_move × (1 + return_boost)
+    Aggressive:   exp_move^1.5 × (1 + return_boost²) × (0.3 + 0.7×conf)
+                  — heavily rewards expected weekly move (ATR-based volatility)
+                    and squares the return boost so past big winners get priority
     """
     def _confidence(r):
         gru_prob = float(r["GRU Prob"])
@@ -497,10 +521,13 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positio
         exp_move     = (atr / price * 100) if price > 0 else 0
         return_pct   = float(r.get("Return %") or 0)
         hold_ret_pct = float(r.get("Hold Return %") or 0)
-        # Boost by positive backtest return — penalise stocks where model
-        # underperformed (return_pct < 0 clips to 0, so no negative boost)
         return_boost = max(return_pct, 0) / 100.0
-        raw_score    = conf * max(exp_move, 0.5) * (1 + return_boost)
+        if aggressive:
+            # Prioritise expected move heavily — reward high-volatility stocks
+            # that the model is pointing up, even at lower confidence
+            raw_score = (max(exp_move, 0.5) ** 1.5) * (1 + return_boost ** 2) * (0.3 + 0.7 * conf)
+        else:
+            raw_score = conf * max(exp_move, 0.5) * (1 + return_boost)
         scored.append({
             "symbol":            r["Symbol"],
             "signal":            "UP",
@@ -605,7 +632,12 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positio
     }
 
 
-portfolio_data = _compute_portfolio(all_results)
+portfolio_data = _compute_portfolio(
+    all_results,
+    max_positions=PROFILE_MAX_POS,
+    cap_pct=PROFILE_CAP_PCT,
+    aggressive=(args.profile == "aggressive"),
+)
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
@@ -830,7 +862,7 @@ if all_results:
             return None
         return v
 
-    json_path = os.path.join("web", "data", "results.json")
+    json_path = RESULTS_PATH
     try:
         os.makedirs(os.path.dirname(json_path), exist_ok=True)
         json_records = []
@@ -861,6 +893,7 @@ if all_results:
                 "symbols": args.symbols,
                 "epochs":   args.epochs,
                 "rl_steps": DEMO_RL_STEPS,
+                "profile":  args.profile,
             },
             "spy_return_pct":      spy_return_pct,
             "prediction_summary":  prediction_summary,
