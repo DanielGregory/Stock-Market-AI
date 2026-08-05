@@ -15,6 +15,7 @@ import sys
 import time
 import datetime
 import pandas as pd
+import yfinance as yf
 
 # ── CLI arguments ─────────────────────────────────────────────────────────────
 
@@ -739,6 +740,74 @@ if all_results:
         for sym, v in sym_stats.items()
     }
 
+    # ── Live portfolio P&L (reads trades_log.json, fetches current prices) ───────
+    trades_log_path = os.path.join("web", "data", "trades_log.json")
+    live_portfolio = {
+        "positions": [], "total_cost": 0, "total_value": 0,
+        "total_pnl_usd": 0, "total_pnl_pct": 0, "n_positions": 0, "as_of": None,
+    }
+    try:
+        if os.path.exists(trades_log_path):
+            with open(trades_log_path) as tlf:
+                trades_data = json.load(tlf)
+            open_trades = [t for t in trades_data.get("trades", []) if t.get("status") == "open"]
+            if open_trades:
+                syms = list({t["symbol"] for t in open_trades})
+                print(f"\n  Fetching live prices for {len(syms)} held positions...")
+                prices = {}
+                for sym in syms:
+                    try:
+                        df = yf.Ticker(sym).history(period="2d")
+                        if not df.empty:
+                            prices[sym] = round(float(df["Close"].iloc[-1]), 2)
+                    except Exception:
+                        pass
+                positions_pnl = []
+                total_cost = total_value = 0.0
+                for t in open_trades:
+                    sym          = t["symbol"]
+                    shares       = float(t.get("shares", 0))
+                    entry_price  = float(t.get("entry_price", 0))
+                    current_price = prices.get(sym, entry_price)
+                    cost  = shares * entry_price
+                    value = shares * current_price
+                    pnl   = value - cost
+                    pnl_pct = (current_price - entry_price) / entry_price * 100 if entry_price > 0 else 0
+                    total_cost  += cost
+                    total_value += value
+                    try:
+                        days_held = (datetime.date.today() - datetime.date.fromisoformat(t.get("entry_date", str(datetime.date.today())))).days
+                    except Exception:
+                        days_held = 0
+                    positions_pnl.append({
+                        "symbol":        sym,
+                        "shares":        round(shares, 6),
+                        "entry_price":   round(entry_price, 2),
+                        "current_price": round(current_price, 2),
+                        "entry_date":    t.get("entry_date"),
+                        "days_held":     days_held,
+                        "cost_basis":    round(cost, 2),
+                        "current_value": round(value, 2),
+                        "pnl_usd":       round(pnl, 2),
+                        "pnl_pct":       round(pnl_pct, 2),
+                    })
+                positions_pnl.sort(key=lambda x: x["pnl_pct"], reverse=True)
+                total_pnl = total_value - total_cost
+                live_portfolio = {
+                    "positions":     positions_pnl,
+                    "total_cost":    round(total_cost, 2),
+                    "total_value":   round(total_value, 2),
+                    "total_pnl_usd": round(total_pnl, 2),
+                    "total_pnl_pct": round(total_pnl / total_cost * 100 if total_cost > 0 else 0, 2),
+                    "n_positions":   len(positions_pnl),
+                    "as_of":         datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+                print(f"  Live portfolio: {len(positions_pnl)} positions · "
+                      f"value=${total_value:,.0f} · P&L=${total_pnl:+,.0f} "
+                      f"({live_portfolio['total_pnl_pct']:+.1f}%)")
+    except Exception as e:
+        print(f"  Live portfolio P&L skipped: {e}")
+
     # ── Write JSON for Vercel dashboard ───────────────────────────────────────
 
     def _safe(v):
@@ -796,6 +865,7 @@ if all_results:
             "spy_return_pct":      spy_return_pct,
             "prediction_summary":  prediction_summary,
             "portfolio":           portfolio_data,
+            "live_portfolio":      live_portfolio,
             "recent_predictions":  sorted(
                 pred_log.get("predictions", []),
                 key=lambda x: x.get("run_date", ""),
