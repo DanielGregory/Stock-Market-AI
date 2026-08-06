@@ -682,6 +682,60 @@ if all_results:
         print(f"  {name}: {f'{ret:+.1f}%' if ret is not None else 'unavailable'}")
     portfolio_data["benchmarks"] = {"VOO": voo_return_pct, "SPMO": spmo_return_pct}
 
+    # ── Equity curve (model vs SPMO vs VOO over test window) ─────────────────
+    def _compute_equity_curve(positions, test_size=pipeline.TEST_SIZE):
+        try:
+            weights = {p["symbol"]: p["allocation_pct"] / 100.0 for p in positions}
+            bench_syms = ["SPMO", "VOO"]
+            all_syms = list(weights.keys()) + bench_syms
+            prices = {}
+            for sym in all_syms:
+                try:
+                    df_p = pipeline.fetch_historical_data(sym, days=test_size + 30)
+                    if not df_p.empty and len(df_p) >= test_size:
+                        prices[sym] = df_p["Close"].iloc[-test_size:].reset_index(drop=True)
+                except Exception:
+                    pass
+            if not prices:
+                return None
+            ref = prices.get("SPMO") or prices.get("VOO") or next(iter(prices.values()))
+            n = len(ref)
+            if n < 5:
+                return None
+            # Use SPY dates as labels if available, else sequential
+            try:
+                df_dates = pipeline.fetch_historical_data("SPY", days=test_size + 30)
+                date_labels = [str(d.date()) for d in df_dates.index[-n:]]
+            except Exception:
+                date_labels = list(range(n))
+
+            def norm(series):
+                base = float(series.iloc[0])
+                return [round(float(v) / base * 100, 2) for v in series] if base else [100.0] * n
+
+            total_w = sum(weights.values())
+            model_curve = [100.0] * n
+            if total_w > 0:
+                for sym, w in weights.items():
+                    if sym in prices and len(prices[sym]) == n:
+                        s = norm(prices[sym])
+                        model_curve = [model_curve[i] + (s[i] - 100) * (w / total_w) for i in range(n)]
+
+            result = {"dates": date_labels, "model": [round(v, 2) for v in model_curve]}
+            for b in bench_syms:
+                if b in prices and len(prices[b]) == n:
+                    result[b] = norm(prices[b])
+            return result
+        except Exception as e:
+            print(f"  Could not compute equity curve: {e}")
+            return None
+
+    print("\n  Computing equity curve...")
+    equity_curve = _compute_equity_curve(portfolio_data.get("positions", []))
+    if equity_curve:
+        portfolio_data["equity_curve"] = equity_curve
+        print(f"  Equity curve: {len(equity_curve['dates'])} data points")
+
     # ── Forward prediction tracking ───────────────────────────────────────────
     import math
     from collections import defaultdict

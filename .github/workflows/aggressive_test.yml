@@ -53,6 +53,9 @@ jobs:
               CAT HON GE BA \
               SPMO \
               TQQQ SOXL MSTR SMCI RKLB IONQ MARA UPST \
+              HOOD SOFI AFRM RIOT CLSK \
+              DDOG NET SNOW \
+              RIVN ASTS LUNR \
             --epochs 50 \
             --steps 16000
 
