@@ -679,7 +679,457 @@
       "outcome_date": null,
       "outcome_price": null,
       "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "AAPL",
+      "gru_signal": "UP",
+      "gru_prob": 0.921,
+      "price_at_prediction": 338.19,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "MSFT",
+      "gru_signal": "UP",
+      "gru_prob": 0.701,
+      "price_at_prediction": 390.54,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "GOOGL",
+      "gru_signal": "UP",
+      "gru_prob": 0.508,
+      "price_at_prediction": 336.71,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "AMZN",
+      "gru_signal": "UP",
+      "gru_prob": 0.745,
+      "price_at_prediction": 226.65,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "META",
+      "gru_signal": "UP",
+      "gru_prob": 0.582,
+      "price_at_prediction": 585.61,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "NVDA",
+      "gru_signal": "UP",
+      "gru_prob": 0.988,
+      "price_at_prediction": 190.01,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "AVGO",
+      "gru_signal": "UP",
+      "gru_prob": 0.742,
+      "price_at_prediction": 370.32,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "ORCL",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.252,
+      "price_at_prediction": 117.74,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "AMD",
+      "gru_signal": "UP",
+      "gru_prob": 0.686,
+      "price_at_prediction": 429.56,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "QCOM",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.395,
+      "price_at_prediction": 155.68,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "CRM",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.263,
+      "price_at_prediction": 188.38,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "NFLX",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.154,
+      "price_at_prediction": 73.63,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "INTC",
+      "gru_signal": "UP",
+      "gru_prob": 0.537,
+      "price_at_prediction": 81.88,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "MU",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.368,
+      "price_at_prediction": 739.0,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "GLW",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.299,
+      "price_at_prediction": 124.05,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "CRWD",
+      "gru_signal": "UP",
+      "gru_prob": 0.926,
+      "price_at_prediction": 179.38,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "PLTR",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.275,
+      "price_at_prediction": 123.0,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "COIN",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.041,
+      "price_at_prediction": 160.09,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "NBIS",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.119,
+      "price_at_prediction": 148.22,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "JPM",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.482,
+      "price_at_prediction": 344.71,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "GS",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.471,
+      "price_at_prediction": 980.75,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "V",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.402,
+      "price_at_prediction": 368.73,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "MA",
+      "gru_signal": "UP",
+      "gru_prob": 0.558,
+      "price_at_prediction": 563.32,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "BAC",
+      "gru_signal": "UP",
+      "gru_prob": 0.658,
+      "price_at_prediction": 61.07,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "MS",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.143,
+      "price_at_prediction": 202.02,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "LLY",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.273,
+      "price_at_prediction": 1210.02,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "UNH",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.42,
+      "price_at_prediction": 420.57,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "JNJ",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.466,
+      "price_at_prediction": 265.53,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "ABBV",
+      "gru_signal": "UP",
+      "gru_prob": 0.675,
+      "price_at_prediction": 263.3,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "MRK",
+      "gru_signal": "UP",
+      "gru_prob": 0.693,
+      "price_at_prediction": 130.36,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "TSLA",
+      "gru_signal": "UP",
+      "gru_prob": 0.699,
+      "price_at_prediction": 298.32,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "HD",
+      "gru_signal": "UP",
+      "gru_prob": 0.806,
+      "price_at_prediction": 338.27,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "MCD",
+      "gru_signal": "UP",
+      "gru_prob": 0.697,
+      "price_at_prediction": 271.52,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "NKE",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.167,
+      "price_at_prediction": 43.22,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "COST",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.418,
+      "price_at_prediction": 974.03,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "WMT",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.337,
+      "price_at_prediction": 114.22,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "PG",
+      "gru_signal": "UP",
+      "gru_prob": 0.749,
+      "price_at_prediction": 146.1,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "KO",
+      "gru_signal": "UP",
+      "gru_prob": 0.576,
+      "price_at_prediction": 89.08,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "XOM",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.283,
+      "price_at_prediction": 156.75,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "CVX",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.203,
+      "price_at_prediction": 191.86,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "CAT",
+      "gru_signal": "UP",
+      "gru_prob": 0.595,
+      "price_at_prediction": 782.71,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "HON",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.379,
+      "price_at_prediction": 241.12,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "GE",
+      "gru_signal": "UP",
+      "gru_prob": 0.635,
+      "price_at_prediction": 350.63,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "BA",
+      "gru_signal": "DOWN",
+      "gru_prob": 0.43,
+      "price_at_prediction": 214.01,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
+    },
+    {
+      "run_date": "2026-08-06",
+      "symbol": "SPMO",
+      "gru_signal": "UP",
+      "gru_prob": 0.935,
+      "price_at_prediction": 136.37,
+      "outcome_date": null,
+      "outcome_price": null,
+      "correct": null
     }
   ],
-  "last_updated": "2026-08-05T15:52:10Z"
+  "last_updated": "2026-08-06T08:20:54Z"
 }
