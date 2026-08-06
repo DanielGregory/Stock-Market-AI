@@ -523,9 +523,9 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positio
         hold_ret_pct = float(r.get("Hold Return %") or 0)
         return_boost = max(return_pct, 0) / 100.0
         if aggressive:
-            # Prioritise expected move heavily — reward high-volatility stocks
-            # that the model is pointing up, even at lower confidence
-            raw_score = (max(exp_move, 0.5) ** 1.5) * (1 + return_boost ** 2) * (0.3 + 0.7 * conf)
+            # Confidence stays a hard multiplier; volatility and return both
+            # amplified vs conservative but can't override a weak signal
+            raw_score = conf * (max(exp_move, 0.5) ** 1.3) * (1 + return_boost ** 1.5)
         else:
             raw_score = conf * max(exp_move, 0.5) * (1 + return_boost)
         scored.append({
