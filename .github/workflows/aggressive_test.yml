@@ -37,8 +37,8 @@ jobs:
             --mode train \
             --symbols \
               NVDA AMD MSFT META GOOGL AMZN AAPL \
-              CRWD PLTR COIN MSTR NBIS \
-              TQQQ SOXL MARA RKLB IONQ UPST SMCI \
+              CRWD PLTR COIN MSTR \
+              MARA RKLB IONQ UPST SMCI \
               HOOD SOFI AFRM RIOT CLSK \
               DDOG NET SNOW \
               TSLA NFLX CRM \

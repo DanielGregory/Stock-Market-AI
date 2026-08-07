@@ -523,9 +523,9 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positio
         hold_ret_pct = float(r.get("Hold Return %") or 0)
         return_boost = max(return_pct, 0) / 100.0
         if aggressive:
-            # Confidence stays a hard multiplier; volatility and return both
-            # amplified vs conservative but can't override a weak signal
-            raw_score = conf * (max(exp_move, 0.5) ** 1.3) * (1 + return_boost ** 1.5)
+            # Cap exp_move so leveraged ETFs (3× ATR) can't dominate purely on
+            # volatility — return quality (squared) carries most of the weight
+            raw_score = conf * (min(max(exp_move, 0.5), 7.0) ** 0.9) * (1 + return_boost ** 2)
         else:
             raw_score = conf * max(exp_move, 0.5) * (1 + return_boost)
         scored.append({
