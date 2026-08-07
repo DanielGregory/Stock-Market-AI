@@ -12,6 +12,7 @@ permissions:
 jobs:
   aggressive-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repo
@@ -26,12 +27,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore cached aggressive models
-        run: |
-          git fetch origin main
-          git checkout origin/main -- Aggressive_Models/ 2>/dev/null || echo "No aggressive models yet — training fresh"
-          git checkout origin/main -- web/data/results_aggressive.json 2>/dev/null || echo "No aggressive results yet — starting fresh"
-
       - name: Run aggressive profile (full retrain)
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
@@ -41,22 +36,15 @@ jobs:
             --profile aggressive \
             --mode train \
             --symbols \
-              AAPL MSFT GOOGL AMZN META NVDA AVGO ORCL \
-              AMD QCOM CRM NFLX INTC \
-              MU GLW \
-              CRWD PLTR COIN NBIS \
-              JPM GS V MA BAC MS \
-              LLY UNH JNJ ABBV MRK \
-              TSLA HD MCD NKE COST \
-              WMT PG KO \
-              XOM CVX \
-              CAT HON GE BA \
-              SPMO \
-              TQQQ SOXL MSTR SMCI RKLB IONQ MARA UPST \
+              NVDA AMD MSFT META GOOGL AMZN AAPL \
+              CRWD PLTR COIN MSTR NBIS \
+              TQQQ SOXL MARA RKLB IONQ UPST SMCI \
               HOOD SOFI AFRM RIOT CLSK \
               DDOG NET SNOW \
-            --epochs 50 \
-            --steps 16000
+              TSLA NFLX CRM \
+              SPMO \
+            --epochs 30 \
+            --steps 12000
 
       - name: Commit aggressive results and models
         run: |
