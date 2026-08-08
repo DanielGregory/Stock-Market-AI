@@ -684,6 +684,8 @@ if all_results:
 
     # ── Equity curve (model vs SPMO vs VOO over test window) ─────────────────
     def _compute_equity_curve(positions, test_size=pipeline.TEST_SIZE):
+        # Fetch enough calendar days to cover test_size trading days (≈test_size*1.5 + buffer)
+        cal_days = int(test_size * 1.6) + 30
         try:
             weights = {p["symbol"]: p["allocation_pct"] / 100.0 for p in positions}
             bench_syms = ["SPMO", "VOO"]
@@ -691,7 +693,7 @@ if all_results:
             prices = {}
             for sym in all_syms:
                 try:
-                    df_p = pipeline.fetch_historical_data(sym, days=test_size + 30)
+                    df_p = pipeline.fetch_historical_data(sym, days=cal_days)
                     if not df_p.empty and len(df_p) >= test_size:
                         prices[sym] = df_p["Close"].iloc[-test_size:].reset_index(drop=True)
                 except Exception:
@@ -702,10 +704,10 @@ if all_results:
             n = len(ref)
             if n < 5:
                 return None
-            # Use SPY dates as labels if available, else sequential
+            # Use SPY dates as labels — Timestamp is a column, not the index
             try:
-                df_dates = pipeline.fetch_historical_data("SPY", days=test_size + 30)
-                date_labels = [str(d.date()) for d in df_dates.index[-n:]]
+                df_dates = pipeline.fetch_historical_data("SPY", days=cal_days)
+                date_labels = [str(d.date()) for d in df_dates["Timestamp"].iloc[-n:]]
             except Exception:
                 date_labels = list(range(n))
 
