@@ -2165,6 +2165,35 @@
         : '';
 
       const hasEquityCurve = !!(pf.equity_curve && pf.equity_curve.dates && pf.equity_curve.dates.length >= 5);
+      const allin = pf.all_in_curve || null;
+      const hasAllin = !!(allin && allin.curve && allin.curve.length >= 5);
+
+      // Build rotation log HTML
+      let rotationHtml = '';
+      if (hasAllin && allin.rotations && allin.rotations.length) {
+        const rows = allin.rotations.map((r, i) => {
+          const ret = r.period_return_pct;
+          const col = ret >= 0 ? 'var(--green)' : 'var(--red)';
+          const sym = r.symbol === 'CASH' ? '<span style="color:var(--muted)">CASH</span>' : `<span style="font-family:var(--mono);font-weight:600">${r.symbol}</span>`;
+          return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:11px;color:var(--muted);width:44px">Wk ${i+1}</span>
+            <span style="flex:1;font-size:13px">${sym}</span>
+            <span style="font-family:var(--mono);font-size:12px;color:${col}">${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%</span>
+          </div>`;
+        }).join('');
+        const finalRet = allin.final_return_pct;
+        const finalCol = finalRet >= 0 ? 'var(--green)' : 'var(--red)';
+        rotationHtml = `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:24px">
+          <p class="section-title" style="margin-bottom:4px">All-In Challenge ⚡ <span style="font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400">— weekly rotation, 100% concentration</span></p>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:14px">At each 5-day rebalance, the model picks the highest-momentum UP-signal stock and goes all in.</p>
+          <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:16px">
+            <span style="font-size:26px;font-weight:700;font-family:var(--mono);color:${finalCol}">${finalRet >= 0 ? '+' : ''}${finalRet.toFixed(1)}%</span>
+            <span style="font-size:12px;color:var(--muted)">total return over test window</span>
+          </div>
+          <div style="max-height:220px;overflow-y:auto">${rows}</div>
+        </div>`;
+      }
 
       el.innerHTML = `
         <div style="font-size:12px;color:var(--muted);margin-bottom:20px;font-family:var(--mono)">
@@ -2173,11 +2202,13 @@
 
         ${benchHtml}
 
-        ${hasEquityCurve ? `
+        ${(hasEquityCurve || hasAllin) ? `
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:24px">
           <p class="section-title" style="margin-bottom:14px">Equity Curve <span style="font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400">(normalized to 100 at start of test window)</span></p>
-          <div style="height:220px;position:relative"><canvas id="sandbox-equity-chart"></canvas></div>
+          <div style="height:240px;position:relative"><canvas id="sandbox-equity-chart"></canvas></div>
         </div>` : ''}
+
+        ${rotationHtml}
 
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:24px">
           <p class="section-title" style="margin-bottom:14px">Active Positions <span style="font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400">(top ${activePicks.length} concentrated picks)</span></p>
@@ -2188,19 +2219,22 @@
         ${otherHtml}
       `;
 
-      if (hasEquityCurve) _initSandboxChart(pf.equity_curve);
+      if (hasEquityCurve || hasAllin) _initSandboxChart(pf.equity_curve || {}, allin);
     }
 
-    function _initSandboxChart(ec) {
+    function _initSandboxChart(ec, allin) {
       const canvas = document.getElementById('sandbox-equity-chart');
       if (!canvas) return;
       const ds = [];
-      if (ec.model) ds.push({ label: 'Strategy', data: ec.model, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true });
-      if (ec.SPMO)  ds.push({ label: 'SPMO',     data: ec.SPMO,  borderColor: '#6366f1', backgroundColor: 'transparent',           borderWidth: 1.5, pointRadius: 0, tension: 0.3, borderDash: [4,3] });
-      if (ec.VOO)   ds.push({ label: 'VOO',       data: ec.VOO,   borderColor: '#64748b', backgroundColor: 'transparent',           borderWidth: 1.5, pointRadius: 0, tension: 0.3, borderDash: [2,4] });
+      if (ec.model) ds.push({ label: 'Strategy',    data: ec.model,       borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', borderWidth: 2,   pointRadius: 0, tension: 0.3, fill: true });
+      if (ec.SPMO)  ds.push({ label: 'SPMO',         data: ec.SPMO,        borderColor: '#6366f1', backgroundColor: 'transparent',           borderWidth: 1.5, pointRadius: 0, tension: 0.3, borderDash: [4,3] });
+      if (ec.VOO)   ds.push({ label: 'VOO',           data: ec.VOO,         borderColor: '#64748b', backgroundColor: 'transparent',           borderWidth: 1.5, pointRadius: 0, tension: 0.3, borderDash: [2,4] });
+      if (allin && allin.curve && allin.curve.length >= 5)
+                    ds.push({ label: 'All-In ⚡',     data: allin.curve,    borderColor: '#f43f5e', backgroundColor: 'transparent',           borderWidth: 1.5, pointRadius: 0, tension: 0.1, borderDash: [6,2] });
+      const labels = ec.dates || Array.from({length: (allin && allin.curve ? allin.curve.length : 0)}, (_, i) => i + 1);
       new Chart(canvas, {
         type: 'line',
-        data: { labels: ec.dates, datasets: ds },
+        data: { labels, datasets: ds },
         options: {
           responsive: true, maintainAspectRatio: false, animation: false,
           plugins: {

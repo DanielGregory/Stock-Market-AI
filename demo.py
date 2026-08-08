@@ -738,6 +738,75 @@ if all_results:
         portfolio_data["equity_curve"] = equity_curve
         print(f"  Equity curve: {len(equity_curve['dates'])} data points")
 
+    # ── All-in weekly rotation backtest (aggressive only) ─────────────────────
+    if args.profile == "aggressive":
+        def _compute_allin_curve(results, test_size=pipeline.TEST_SIZE, hold_days=5):
+            """
+            Simulate an all-in weekly rotation strategy using the trained model's signals.
+            At each hold_days boundary, pick the highest trailing-momentum stock that
+            the model is long on (BUY or HOLD signal). No look-ahead: score is based
+            only on data available at that point in time.
+            """
+            prices_map = {}
+            for r in results:
+                cd = r.get("chart_data") or {}
+                p = cd.get("prices", [])
+                s = cd.get("signals", [])
+                if len(p) >= test_size and len(s) >= test_size:
+                    prices_map[r["Symbol"]] = {
+                        "prices": [float(x) for x in p[-test_size:]],
+                        "long":   [sig in ("BUY", "HOLD") for sig in s[-test_size:]],
+                    }
+            if not prices_map:
+                return None
+
+            equity = 100.0
+            curve = []
+            rotations = []
+            t = 0
+            while t < test_size:
+                end = min(t + hold_days, test_size)
+                # Score at time t: UP-signal stocks ranked by trailing momentum
+                best_sym, best_score = None, -1e9
+                for sym, d in prices_map.items():
+                    if not d["long"][t]:
+                        continue
+                    prev_t = max(0, t - hold_days)
+                    trailing = (d["prices"][t] / d["prices"][prev_t]) - 1.0
+                    if trailing > best_score:
+                        best_score, best_sym = trailing, sym
+
+                if best_sym is None:
+                    for _ in range(end - t):
+                        curve.append(round(equity, 2))
+                    rotations.append({"day": t, "symbol": "CASH", "period_return_pct": 0.0})
+                else:
+                    entry_price = prices_map[best_sym]["prices"][t]
+                    period_start = equity
+                    for i in range(end - t):
+                        day_price = prices_map[best_sym]["prices"][t + i]
+                        equity = period_start * (day_price / entry_price)
+                        curve.append(round(equity, 2))
+                    period_ret = round((equity / period_start - 1) * 100, 1)
+                    rotations.append({"day": t, "symbol": best_sym, "period_return_pct": period_ret})
+                t = end
+
+            if not curve:
+                return None
+            return {
+                "curve":            curve,
+                "rotations":        rotations,
+                "final_return_pct": round((curve[-1] / 100.0 - 1) * 100, 1),
+            }
+
+        print("  Computing all-in rotation curve...")
+        allin = _compute_allin_curve(all_results)
+        if allin:
+            portfolio_data["all_in_curve"] = allin
+            picks = [r["symbol"] for r in allin["rotations"] if r["symbol"] != "CASH"]
+            print(f"  All-in final return: {allin['final_return_pct']:+.1f}% | "
+                  f"Rotations: {picks}")
+
     # ── Forward prediction tracking ───────────────────────────────────────────
     import math
     from collections import defaultdict
