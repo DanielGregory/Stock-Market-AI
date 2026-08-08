@@ -68,7 +68,7 @@ BASE_FEATURES = [
     # Volatility / range
     'Volatility_20', 'ATR_14', 'BB_pct', 'High_Low_pct',
     # Momentum oscillators
-    'RSI', 'Stoch_K', 'Stoch_D', 'ROC_5', 'ROC_20', 'Candle_body',
+    'RSI', 'Stoch_K', 'Stoch_D', 'ROC_5', 'ROC_20', 'ROC_60', 'Candle_body',
     # Volume
     'Obv', 'Volume_ratio',
     # MACD family
@@ -186,6 +186,7 @@ def add_features(data):
 
         data['ROC_5']  = (data['Close'] / data['Close'].shift(5)  - 1) * 100
         data['ROC_20'] = (data['Close'] / data['Close'].shift(20) - 1) * 100
+        data['ROC_60'] = (data['Close'] / data['Close'].shift(60) - 1) * 100
 
         # ── Volume ────────────────────────────────────────────────────────────
         price_dir = np.sign(data['Close'].diff().fillna(0))

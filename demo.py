@@ -509,6 +509,30 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positio
                 + 0.3 * max(0.0, (sgd_acc - 0.5) * 2)
                 + 0.2 * min(adx / 50.0, 1.0))
 
+    # ── Cross-sectional Relative Strength ranking (all stocks, not just UP) ──
+    # Uses the last 100 days of price data already in chart_data["prices"].
+    # Each stock gets a 0-1 percentile rank averaged across 3 look-back periods.
+    # Top RS stock → 1.3× score multiplier; bottom RS → 0.7×.
+    _rs_raw = {}
+    for r in results:
+        cd = r.get("chart_data") or {}
+        p  = cd.get("prices", [])
+        n  = len(p)
+        if n >= 21:
+            _rs_raw[r["Symbol"]] = {
+                "ret_20": (p[-1] / p[-21] - 1),
+                "ret_60": (p[-1] / p[-61] - 1) if n >= 61 else (p[-1] / p[0] - 1),
+                "ret_90": (p[-1] / p[0]  - 1),
+            }
+    rs_ranks = {}
+    if _rs_raw:
+        syms = list(_rs_raw.keys())
+        for key in ("ret_20", "ret_60", "ret_90"):
+            ordered = sorted(syms, key=lambda s: _rs_raw[s][key])
+            n_syms  = len(ordered)
+            for rank, sym in enumerate(ordered):
+                rs_ranks[sym] = rs_ranks.get(sym, 0.0) + rank / max(n_syms - 1, 1) / 3.0
+
     # ── Score every UP-signal stock ────────────────────────────────────────
     scored = []
     for r in results:
@@ -522,10 +546,10 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positio
         return_pct   = float(r.get("Return %") or 0)
         hold_ret_pct = float(r.get("Hold Return %") or 0)
         return_boost = max(return_pct, 0) / 100.0
+        rs_rank      = rs_ranks.get(r["Symbol"], 0.5)  # default median if no price data
+        rs_mult      = 0.7 + 0.6 * rs_rank             # maps 0→0.7, 0.5→1.0, 1.0→1.3
         if aggressive:
-            # Cap exp_move so leveraged ETFs (3× ATR) can't dominate purely on
-            # volatility — return quality (squared) carries most of the weight
-            raw_score = conf * (min(max(exp_move, 0.5), 7.0) ** 0.9) * (1 + return_boost ** 2)
+            raw_score = conf * (min(max(exp_move, 0.5), 7.0) ** 0.9) * (1 + return_boost ** 2) * rs_mult
         else:
             raw_score = conf * max(exp_move, 0.5) * (1 + return_boost)
         scored.append({
@@ -536,6 +560,7 @@ def _compute_portfolio(results, portfolio_usd=100_000, cap_pct=25.0, max_positio
             "expected_move_pct": round(exp_move, 2),
             "return_pct":        round(return_pct, 1),
             "hold_return_pct":   round(hold_ret_pct, 1),
+            "rs_rank":           round(rs_rank, 2),
             "raw_score":         raw_score,
         })
 
