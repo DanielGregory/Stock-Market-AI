@@ -700,7 +700,7 @@ if all_results:
                     pass
             if not prices:
                 return None
-            ref = prices.get("SPMO") or prices.get("VOO") or next(iter(prices.values()))
+            ref = next((prices[k] for k in ("SPMO", "VOO") if k in prices), next(iter(prices.values())))
             n = len(ref)
             if n < 5:
                 return None
